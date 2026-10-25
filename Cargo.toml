@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/diskclean-gui",
+    "crates/diskclean-core",
+    "crates/diskclean-platform",
+    "crates/diskclean-rules",
+    "crates/diskclean-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "GPL-3.0-only"
+authors = ["Disk Cleanup contributors"]
+description = "Cross-platform disk usage analyzer with safe cleanup recommendations"
+repository = "https://example.invalid/disk-cleanup"
+
+[workspace.dependencies]
+anyhow = "1.0"
+assert_cmd = "2.2"
+clap = { version = "4.6", features = ["derive"] }
+ctrlc = "3.4"
+predicates = "3.1"
+rayon = "1.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sysinfo = { version = "0.39", default-features = false, features = ["disk", "system"] }
+tempfile = "3.27"
+thiserror = "2.0"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"

@@ -1,0 +1,21 @@
+[package]
+name = "diskclean-core"
+description = "Filesystem scanner and tree model for Disk Cleanup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+diskclean-platform = { path = "../diskclean-platform" }
+rayon.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

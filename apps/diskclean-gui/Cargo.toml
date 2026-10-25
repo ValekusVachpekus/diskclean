@@ -1,0 +1,48 @@
+[package]
+name = "diskclean-gui"
+description = "egui desktop application for Disk Cleanup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "diskclean-gui"
+path = "src/main.rs"
+
+[dependencies]
+diskclean-core = { path = "../../crates/diskclean-core" }
+diskclean-platform = { path = "../../crates/diskclean-platform" }
+egui_extras = "0.37"
+serde = { workspace = true }
+sys-locale = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.37", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "persistence",
+    "wayland",
+    "x11",
+] }
+rfd = { version = "0.17", default-features = false, features = [
+    "wayland",
+    "xdg-portal",
+] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+eframe = { version = "0.37", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "persistence",
+] }
+rfd = { version = "0.17", default-features = false }
+
+[dev-dependencies]
+egui_kittest = "0.37"
+
+[lints]
+workspace = true
