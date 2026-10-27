@@ -68,6 +68,7 @@ impl FileMeta {
             use std::os::windows::fs::MetadataExt;
 
             const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+            let (dev, ino, nlink) = windows_file_identity(_path);
 
             Self {
                 kind,
@@ -79,9 +80,9 @@ impl FileMeta {
                 },
                 modified_unix: system_time_to_unix(meta.modified()),
                 accessed_unix: system_time_to_unix(meta.accessed()),
-                dev: 0,
-                ino: 0,
-                nlink: 1,
+                dev,
+                ino,
+                nlink,
                 is_hidden: meta.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0,
             }
         }
@@ -106,6 +107,64 @@ impl FileMeta {
 /// Read metadata without following symlinks.
 pub fn metadata(path: &Path) -> io::Result<FileMeta> {
     fs::symlink_metadata(path).map(|meta| FileMeta::from_std(path, &meta))
+}
+
+// The standard library keeps the Windows file index, volume serial, and link
+// count behind the unstable `windows_by_handle` API. Read the same
+// `BY_HANDLE_FILE_INFORMATION` through a metadata-only handle instead. If the
+// handle cannot be opened, report unknown identity and a single link so the
+// caller falls back to the previous conservative behavior.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn windows_file_identity(path: &Path) -> (u64, u64, u64) {
+    use std::iter;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, GetFileInformationByHandle, OPEN_EXISTING,
+    };
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that lives for the call,
+    // `info` is a valid out-parameter, and the handle is closed exactly once
+    // before returning.
+    unsafe {
+        let handle = CreateFileW(
+            wide.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            ptr::null_mut(),
+        );
+        if handle == INVALID_HANDLE_VALUE {
+            return (0, 0, 1);
+        }
+
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        let success = GetFileInformationByHandle(handle, &mut info);
+        CloseHandle(handle);
+        if success == 0 {
+            return (0, 0, 1);
+        }
+
+        let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+        (
+            u64::from(info.dwVolumeSerialNumber),
+            index,
+            u64::from(info.nNumberOfLinks).max(1),
+        )
+    }
 }
 
 // The standard library does not expose Windows allocation size. Keep the

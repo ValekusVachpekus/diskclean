@@ -365,6 +365,8 @@ impl<'a> TreeBuilder<'a> {
         for entry in &raw.entries {
             let is_duplicate = entry.meta.kind == FileKind::File
                 && entry.meta.nlink > 1
+                && entry.meta.dev != 0
+                && entry.meta.ino != 0
                 && !self.seen_hardlinks.insert((entry.meta.dev, entry.meta.ino));
 
             let kind = node_kind(entry.meta.kind);
