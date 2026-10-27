@@ -238,9 +238,21 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let home = temp.path().join("home");
         let policy = ProtectedPaths::for_context(&context(&home), []);
-        assert!(policy.is_protected(Path::new("/etc")));
-        assert!(policy.is_protected(Path::new("/etc/passwd")));
-        assert!(policy.is_protected(Path::new("/")));
+
+        #[cfg(unix)]
+        {
+            assert!(policy.is_protected(Path::new("/etc")));
+            assert!(policy.is_protected(Path::new("/etc/passwd")));
+            assert!(policy.is_protected(Path::new("/")));
+        }
+
+        #[cfg(windows)]
+        {
+            assert!(policy.is_protected(Path::new(r"C:\Windows")));
+            assert!(policy.is_protected(Path::new(r"C:\Windows\System32\drivers")));
+            assert!(policy.is_protected(Path::new(r"C:\")));
+        }
+
         assert!(policy.is_protected(&home));
         assert!(policy.is_protected(temp.path()), "ancestor of home");
         assert!(policy.is_protected(&home.join(".ssh/id_ed25519")));
@@ -283,8 +295,21 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let home = temp.path().join("home");
         let policy = ProtectedPaths::for_context(&context(&home), []);
-        assert!(!policy.is_protected(Path::new("/etc2")));
-        assert!(!policy.is_protected(Path::new("/usr-local")));
+
+        assert!(!policy.is_protected(&temp.path().join("home2")));
+
+        #[cfg(unix)]
+        {
+            assert!(!policy.is_protected(Path::new("/etc2")));
+            assert!(!policy.is_protected(Path::new("/usr-local")));
+        }
+
+        #[cfg(windows)]
+        {
+            assert!(!policy.is_protected(Path::new(r"C:\Windows2")));
+            assert!(!policy.is_protected(Path::new(r"C:\Windows.old\Temp")));
+            assert!(!policy.is_protected(Path::new(r"C:\ProgramData2\file.txt")));
+        }
     }
 
     #[cfg(windows)]
