@@ -140,7 +140,7 @@ fn recommend_json_lists_rules_and_candidates() {
     assert!(dev["items"].as_array().expect("items").iter().any(|item| {
         item["path"]
             .as_str()
-            .is_some_and(|path| path.ends_with("project/target"))
+            .is_some_and(|path| std::path::Path::new(path).ends_with("project/target"))
     }));
 }
 
