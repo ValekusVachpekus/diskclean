@@ -11,6 +11,12 @@ authors.workspace = true
 serde.workspace = true
 sysinfo.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

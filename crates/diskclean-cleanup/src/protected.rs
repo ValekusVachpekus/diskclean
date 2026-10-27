@@ -131,7 +131,7 @@ fn platform_roots() -> Vec<PathBuf> {
 
 #[cfg(windows)]
 fn platform_roots() -> Vec<PathBuf> {
-    [
+    let mut roots: Vec<PathBuf> = [
         r"C:\Windows",
         r"C:\Program Files",
         r"C:\Program Files (x86)",
@@ -143,7 +143,22 @@ fn platform_roots() -> Vec<PathBuf> {
     ]
     .into_iter()
     .map(PathBuf::from)
-    .collect()
+    .collect();
+    for variable in [
+        "SystemRoot",
+        "WINDIR",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "ProgramData",
+    ] {
+        if let Some(path) = std::env::var_os(variable).map(PathBuf::from)
+            && path.is_absolute()
+        {
+            roots.push(path);
+        }
+    }
+    roots
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -187,11 +202,10 @@ fn strip_verbatim(path: &Path) -> PathBuf {
 }
 
 fn is_root(path: &Path) -> bool {
-    let mut components = path.components();
-    matches!(
-        components.next(),
-        Some(Component::RootDir | Component::Prefix(_))
-    ) && components.next().is_none()
+    path.has_root()
+        && !path
+            .components()
+            .any(|component| matches!(component, Component::Normal(_) | Component::ParentDir))
 }
 
 fn path_key(path: &Path) -> String {
@@ -203,12 +217,19 @@ fn path_key(path: &Path) -> String {
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
-    path_key(left) == path_key(right)
+    if cfg!(windows) {
+        path_key(left) == path_key(right)
+    } else {
+        left == right
+    }
 }
 
 /// `path` equals `root` or is below it. Components are compared as text with
 /// a separator check, so `/etc2` is not treated as a child of `/etc`.
 fn is_same_or_descendant(path: &Path, root: &Path) -> bool {
+    if !cfg!(windows) {
+        return path.starts_with(root);
+    }
     let path = path_key(path);
     let root = path_key(root);
     if path == root {
@@ -320,5 +341,8 @@ mod tests {
         assert!(policy.is_protected(Path::new(r"c:\windows\system32")));
         assert!(policy.is_protected(Path::new(r"\\?\C:\Windows\Temp")));
         assert!(!policy.is_protected(Path::new(r"C:\Users\test\AppData\Local\Temp")));
+        assert!(policy.is_protected(Path::new(r"D:\")));
+        assert!(policy.is_protected(Path::new(r"\\server\share\")));
+        assert!(policy.is_protected(Path::new(r"\\?\D:\")));
     }
 }

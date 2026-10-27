@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use diskclean_platform::{FileKind, metadata};
+use diskclean_platform::{FileKind, MountPoints, check_path_components, metadata};
 use diskclean_rules::{
     ActionKind, BaseDir, EntryKind, Location, LocationMode, Rule, RulesError, builtin_rules,
 };
@@ -216,7 +216,7 @@ fn collect_location(
     location: &Location,
     context: &CleanupContext,
     protected: &ProtectedPaths,
-    seen: &mut HashSet<String>,
+    seen: &mut HashSet<PathBuf>,
     items: &mut Vec<CleanupItem>,
     issues: &mut Vec<CleanupIssue>,
 ) {
@@ -224,6 +224,13 @@ fn collect_location(
         return;
     };
     if !base.exists() {
+        return;
+    }
+    if let Err(error) = check_path_components(&base) {
+        issues.push(CleanupIssue {
+            path: base,
+            message: error.to_string(),
+        });
         return;
     }
 
@@ -239,10 +246,23 @@ fn collect_location(
                 });
                 return;
             };
-            let mut paths: Vec<PathBuf> = entries
-                .filter_map(Result::ok)
-                .map(|entry| entry.path())
-                .collect();
+            let mut paths = Vec::new();
+            for entry in entries {
+                match entry {
+                    Ok(entry) => paths.push(entry.path()),
+                    Err(error) => issues.push(CleanupIssue {
+                        path: base.clone(),
+                        message: error.to_string(),
+                    }),
+                }
+                if paths.len() > location.max_entries {
+                    issues.push(CleanupIssue {
+                        path: base.clone(),
+                        message: "candidate limit reached; results are incomplete".to_owned(),
+                    });
+                    break;
+                }
+            }
             paths.sort();
             for path in paths.into_iter().take(location.max_entries) {
                 push_candidate(rule, location, &path, protected, seen, items, issues);
@@ -259,35 +279,89 @@ fn walk_named(
     location: &Location,
     base: &Path,
     protected: &ProtectedPaths,
-    seen: &mut HashSet<String>,
+    seen: &mut HashSet<PathBuf>,
     items: &mut Vec<CleanupItem>,
     issues: &mut Vec<CleanupIssue>,
 ) {
+    let (root_meta, mounts) =
+        match metadata(base).and_then(|meta| MountPoints::read().map(|mounts| (meta, mounts))) {
+            Ok(result) => result,
+            Err(error) => {
+                issues.push(CleanupIssue {
+                    path: base.to_path_buf(),
+                    message: error.to_string(),
+                });
+                return;
+            }
+        };
     let mut stack = vec![(base.to_path_buf(), 0_u16)];
     let mut visited = 0_usize;
 
     while let Some((directory, depth)) = stack.pop() {
-        if depth > location.max_depth || items.len() >= location.max_entries {
-            break;
-        }
-        let Ok(entries) = fs::read_dir(&directory) else {
+        if depth > location.max_depth {
             continue;
-        };
-        let mut paths: Vec<PathBuf> = entries
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .collect();
+        }
+        let entries =
+            match check_path_components(&directory).and_then(|()| fs::read_dir(&directory)) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    issues.push(CleanupIssue {
+                        path: directory,
+                        message: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+        if items.len() >= location.max_entries {
+            issues.push(CleanupIssue {
+                path: directory,
+                message: "candidate limit reached; results are incomplete".to_owned(),
+            });
+            continue;
+        }
+        let mut paths = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(entry) => paths.push(entry.path()),
+                Err(error) => issues.push(CleanupIssue {
+                    path: directory.clone(),
+                    message: error.to_string(),
+                }),
+            }
+            if paths.len() > location.max_entries.saturating_mul(20).max(2_000) {
+                issues.push(CleanupIssue {
+                    path: directory.clone(),
+                    message: "directory entry limit reached; results are incomplete".to_owned(),
+                });
+                break;
+            }
+        }
         paths.sort();
 
         for path in paths {
+            if items.len() >= location.max_entries {
+                issues.push(CleanupIssue {
+                    path: directory.clone(),
+                    message: "candidate limit reached; results are incomplete".to_owned(),
+                });
+                return;
+            }
             visited = visited.saturating_add(1);
             if visited > location.max_entries.saturating_mul(20).max(2_000) {
+                issues.push(CleanupIssue {
+                    path: directory.clone(),
+                    message: "traversal limit reached; results are incomplete".to_owned(),
+                });
                 return;
             }
             let Ok(meta) = metadata(&path) else {
                 continue;
             };
-            if meta.kind != FileKind::Directory || meta.kind == FileKind::Symlink {
+            if meta.kind != FileKind::Directory
+                || meta.dev != root_meta.dev
+                || mounts.contains(&path)
+                || protected.is_protected(&path)
+            {
                 continue;
             }
             let matches = path
@@ -310,26 +384,38 @@ fn push_candidate(
     location: &Location,
     path: &Path,
     protected: &ProtectedPaths,
-    seen: &mut HashSet<String>,
+    seen: &mut HashSet<PathBuf>,
     items: &mut Vec<CleanupItem>,
     issues: &mut Vec<CleanupIssue>,
 ) {
     if protected.is_protected(path) {
         return;
     }
-    if !seen.insert(path_key(path)) {
+    if seen.contains(&path_key(path)) {
         return;
+    }
+
+    // Apply cheap filters before walking an entire candidate directory.
+    if let Ok(meta) = metadata(path) {
+        let kind = match meta.kind {
+            FileKind::File => ItemKind::File,
+            FileKind::Directory => ItemKind::Directory,
+            _ => return,
+        };
+        if !kind_matches(location.kind, kind)
+            || (location.min_age_days > 0 && !old_enough(meta.modified_unix, location.min_age_days))
+        {
+            return;
+        }
     }
 
     let item = match CleanupItem::new(path, &rule.id, rule.category, rule.risk) {
         Ok(item) => item,
         Err(error) => {
-            if error.kind() != std::io::ErrorKind::InvalidInput {
-                issues.push(CleanupIssue {
-                    path: path.to_path_buf(),
-                    message: error.to_string(),
-                });
-            }
+            issues.push(CleanupIssue {
+                path: path.to_path_buf(),
+                message: error.to_string(),
+            });
             return;
         }
     };
@@ -342,6 +428,7 @@ fn push_candidate(
         return;
     }
 
+    seen.insert(path_key(path));
     items.push(item);
 }
 
@@ -361,11 +448,11 @@ fn old_enough(modified_unix: i64, min_age_days: u64) -> bool {
     age >= min_age_days.saturating_mul(86_400)
 }
 
-fn path_key(path: &Path) -> String {
+fn path_key(path: &Path) -> PathBuf {
     if cfg!(windows) {
-        path.to_string_lossy().to_lowercase()
+        PathBuf::from(path.to_string_lossy().to_lowercase())
     } else {
-        path.to_string_lossy().into_owned()
+        path.to_path_buf()
     }
 }
 

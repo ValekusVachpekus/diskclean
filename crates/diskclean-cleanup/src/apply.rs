@@ -1,17 +1,15 @@
 //! Revalidation and trash application after the user confirms the basket.
 
 use std::collections::HashSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use diskclean_platform::FileKind;
 use diskclean_rules::Risk;
 use serde::Serialize;
 
 use crate::audit::{AuditEntry, AuditError, AuditLog};
 use crate::protected::ProtectedPaths;
-use crate::snapshot::{CleanupItem, ItemKind, now_unix_ms, serialize_path};
+use crate::snapshot::{CleanupItem, FileSnapshot, now_unix_ms, serialize_path};
 use crate::trash::{TrashBackend, TrashError};
 
 /// Anything that can durably record an audit entry. Tests can inject failures.
@@ -179,6 +177,30 @@ pub fn apply(
             break;
         }
 
+        // Audit durability can take time. Revalidate again after the flush,
+        // immediately before the path-based OS trash operation.
+        if protected.check(&item.path).is_err() || revalidate(item).is_err() {
+            let mut result = ItemResult::from_item(
+                item,
+                ItemResultKind::Changed,
+                Some("item changed after audit intent".to_owned()),
+            );
+            if let Err(error) = audit.append(&AuditEntry::result(
+                &batch_id,
+                item,
+                "changed",
+                result.error.clone(),
+            )) {
+                result.audit_error = Some(error.to_string());
+                aborted_reason = Some("cannot record rejected cleanup result".to_owned());
+            }
+            results.push(result);
+            if aborted_reason.is_some() {
+                break;
+            }
+            continue;
+        }
+
         let result = match backend.move_to_trash(&item.path) {
             Ok(()) => {
                 bytes_trashed = bytes_trashed.saturating_add(item.size());
@@ -249,63 +271,28 @@ enum RevalidateError {
 }
 
 fn revalidate(item: &CleanupItem) -> Result<(), RevalidateError> {
-    let meta = diskclean_platform::metadata(&item.path).map_err(|error| {
+    let current = FileSnapshot::capture(&item.path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             RevalidateError::Missing(error.to_string())
+        } else if error.kind() == std::io::ErrorKind::InvalidInput {
+            RevalidateError::Symlink
         } else {
             RevalidateError::Metadata(error.to_string())
         }
     })?;
 
-    let kind = match meta.kind {
-        FileKind::File => ItemKind::File,
-        FileKind::Directory => ItemKind::Directory,
-        FileKind::Symlink => return Err(RevalidateError::Symlink),
-        FileKind::Other => {
-            return Err(RevalidateError::Metadata(
-                "path became a special file".to_owned(),
-            ));
-        }
-    };
-    if kind != item.snapshot.kind {
+    if current != item.snapshot {
         return Err(RevalidateError::Changed);
-    }
-    if meta.dev != 0 && item.snapshot.dev != 0 && meta.dev != item.snapshot.dev {
-        return Err(RevalidateError::Changed);
-    }
-    if meta.ino != 0 && item.snapshot.ino != 0 && meta.ino != item.snapshot.ino {
-        return Err(RevalidateError::Changed);
-    }
-    if meta.modified_unix != item.snapshot.modified_unix {
-        return Err(RevalidateError::Changed);
-    }
-
-    match kind {
-        ItemKind::File => {
-            if meta.logical_size != item.snapshot.logical_size
-                || meta.allocated_size != item.snapshot.measured_size
-            {
-                return Err(RevalidateError::Changed);
-            }
-        }
-        ItemKind::Directory => {
-            let children = fs::read_dir(&item.path)
-                .map_err(|error| RevalidateError::Metadata(error.to_string()))?
-                .count() as u64;
-            if Some(children) != item.snapshot.direct_children {
-                return Err(RevalidateError::Changed);
-            }
-        }
     }
 
     Ok(())
 }
 
-fn path_key(path: &Path) -> String {
+fn path_key(path: &Path) -> PathBuf {
     if cfg!(windows) {
-        path.to_string_lossy().to_lowercase()
+        PathBuf::from(path.to_string_lossy().to_lowercase())
     } else {
-        path.to_string_lossy().into_owned()
+        path.to_path_buf()
     }
 }
 
@@ -546,5 +533,81 @@ mod tests {
         let report = apply(&[item.clone(), item], &protected, &mut trash, &mut audit);
         assert_eq!(report.trashed_count, 1);
         assert_eq!(report.results[1].kind, ItemResultKind::Duplicate);
+    }
+
+    #[test]
+    fn nested_changes_reject_the_entire_directory() {
+        let (temp, protected, _) = setup();
+        let dir = temp.path().join("home/.cache");
+        fs::create_dir(dir.join("nested")).expect("nested");
+        let item = CleanupItem::new(&dir, "test", Category::AppCache, Risk::Low).expect("snapshot");
+        fs::write(dir.join("nested/new-important-file"), b"new data").expect("new file");
+        let mut trash = FakeTrash::default();
+        let report = apply(&[item], &protected, &mut trash, &mut FakeAudit::default());
+        assert_eq!(report.results[0].kind, ItemResultKind::Changed);
+        assert!(trash.calls.is_empty());
+    }
+
+    #[test]
+    fn subsecond_changes_are_rejected() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let (_temp, protected, item) = setup();
+        let file = fs::File::options()
+            .write(true)
+            .open(&item.path)
+            .expect("file");
+        file.set_modified(UNIX_EPOCH + Duration::new(1_700_000_000, 100_000_000))
+            .expect("mtime");
+        let item =
+            CleanupItem::new(&item.path, "test", Category::AppCache, Risk::Low).expect("snapshot");
+        fs::write(&item.path, b"changed").expect("same size");
+        file.set_modified(UNIX_EPOCH + Duration::new(1_700_000_000, 900_000_000))
+            .expect("mtime");
+        let mut trash = FakeTrash::default();
+        let report = apply(&[item], &protected, &mut trash, &mut FakeAudit::default());
+        assert_eq!(report.results[0].kind, ItemResultKind::Changed);
+        assert!(trash.calls.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_link_substitution_is_rejected_even_for_same_inode() {
+        let (temp, protected, item) = setup();
+        let original = temp.path().join("home/.cache");
+        let moved = temp.path().join("home/moved-cache");
+        fs::rename(&original, &moved).expect("rename parent");
+        std::os::unix::fs::symlink(&moved, &original).expect("link parent");
+        let mut trash = FakeTrash::default();
+        let report = apply(&[item], &protected, &mut trash, &mut FakeAudit::default());
+        assert_eq!(report.results[0].kind, ItemResultKind::Symlink);
+        assert!(trash.calls.is_empty());
+    }
+
+    #[test]
+    fn changes_during_audit_flush_are_rejected_and_recorded() {
+        struct ChangingAudit {
+            path: PathBuf,
+            entries: Vec<AuditEntry>,
+        }
+        impl AuditSink for ChangingAudit {
+            fn append(&mut self, entry: &AuditEntry) -> Result<(), AuditError> {
+                if self.entries.is_empty() {
+                    fs::write(&self.path, b"new data after intent").expect("change");
+                }
+                self.entries.push(entry.clone());
+                Ok(())
+            }
+        }
+        let (_temp, protected, item) = setup();
+        let mut audit = ChangingAudit {
+            path: item.path.clone(),
+            entries: Vec::new(),
+        };
+        let mut trash = FakeTrash::default();
+        let report = apply(&[item], &protected, &mut trash, &mut audit);
+        assert_eq!(report.results[0].kind, ItemResultKind::Changed);
+        assert!(trash.calls.is_empty());
+        assert_eq!(audit.entries.len(), 2);
+        assert_eq!(audit.entries[1].outcome.as_deref(), Some("changed"));
     }
 }

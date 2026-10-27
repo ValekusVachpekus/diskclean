@@ -27,6 +27,8 @@ pub struct FileMeta {
     pub logical_size: u64,
     pub allocated_size: u64,
     pub modified_unix: i64,
+    /// Full filesystem timestamp for safety checks; seconds are display-only.
+    pub modified: Option<SystemTime>,
     pub accessed_unix: i64,
     pub dev: u64,
     pub ino: u64,
@@ -36,7 +38,7 @@ pub struct FileMeta {
 
 impl FileMeta {
     fn from_std(_path: &Path, meta: &fs::Metadata) -> Self {
-        let kind = if meta.file_type().is_symlink() {
+        let kind = if is_link(meta) {
             FileKind::Symlink
         } else if meta.is_dir() {
             FileKind::Directory
@@ -55,6 +57,7 @@ impl FileMeta {
                 logical_size: meta.len(),
                 allocated_size: meta.blocks().saturating_mul(512),
                 modified_unix: system_time_to_unix(meta.modified()),
+                modified: meta.modified().ok(),
                 accessed_unix: system_time_to_unix(meta.accessed()),
                 dev: meta.dev(),
                 ino: meta.ino(),
@@ -79,6 +82,7 @@ impl FileMeta {
                     meta.len()
                 },
                 modified_unix: system_time_to_unix(meta.modified()),
+                modified: meta.modified().ok(),
                 accessed_unix: system_time_to_unix(meta.accessed()),
                 dev,
                 ino,
@@ -94,6 +98,7 @@ impl FileMeta {
                 logical_size: meta.len(),
                 allocated_size: meta.len(),
                 modified_unix: system_time_to_unix(meta.modified()),
+                modified: meta.modified().ok(),
                 accessed_unix: system_time_to_unix(meta.accessed()),
                 dev: 0,
                 ino: 0,
@@ -107,6 +112,117 @@ impl FileMeta {
 /// Read metadata without following symlinks.
 pub fn metadata(path: &Path) -> io::Result<FileMeta> {
     fs::symlink_metadata(path).map(|meta| FileMeta::from_std(path, &meta))
+}
+
+fn is_link(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        // Reject every reparse point, not only tags understood as symlinks.
+        meta.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        meta.file_type().is_symlink()
+    }
+}
+
+/// Reject links in every existing component, including parents. Parent-dir
+/// components are refused rather than normalized across a possible link.
+pub fn check_path_components(path: &Path) -> io::Result<()> {
+    use std::path::Component;
+    let absolute = std::path::absolute(path)?;
+    let mut current = std::path::PathBuf::new();
+    for component in absolute.components() {
+        if component == Component::ParentDir {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "parent traversal is not allowed",
+            ));
+        }
+        current.push(component);
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
+        if is_link(&fs::symlink_metadata(&current)?) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "symlink or reparse point in path",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Open regular data without following a final symlink or blocking on a FIFO.
+/// Ancestors are checked too, but path-based OS APIs still have a rename race.
+pub fn open_regular_file(path: &Path) -> io::Result<fs::File> {
+    check_path_components(path)?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || is_link(&meta) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+/// Identity of the opened object, not another lookup of its pathname.
+pub fn opened_identity(file: &fs::File) -> io::Result<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = file.metadata()?;
+        Ok((meta.dev(), meta.ino()))
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        windows_handle_identity(file.as_raw_handle()).map(|(dev, ino, _)| (dev, ino))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = file;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "file identity unavailable",
+        ))
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn windows_handle_identity(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+) -> io::Result<(u64, u64, u64)> {
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: caller owns a live handle; info is a valid out parameter.
+    if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((
+        u64::from(info.dwVolumeSerialNumber),
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+        u64::from(info.nNumberOfLinks).max(1),
+    ))
 }
 
 // The standard library keeps the Windows file index, volume serial, and link

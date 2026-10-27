@@ -11,7 +11,7 @@ Last updated: 2026-10-28.
 The original milestones below describe delivered functionality, not a completed
 safety audit. Stabilization takes priority over applications and similar media.
 
-- [ ] S1: reject linked ancestors/reparse points and mount crossings; capture
+- [x] S1: reject linked ancestors/reparse points and mount crossings; capture
       precise timestamps and complete directory manifests; recheck after audit
       intent; add adversarial regression tests and document residual OS races.
 - [ ] S2: retain duplicate scan evidence and verify both copies and keepers
@@ -457,6 +457,14 @@ backend covers success/error/cancel/changed-file; system commands never run.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-28 (S1): Cleanup now rejects linked ancestors, all Windows reparse
+  tags, mount roots/descendants and incomplete directory evidence. Full
+  descendant manifests, nanosecond timestamps and link counts are revalidated
+  after durable audit intent. Added eight cleanup regressions, a mount parser
+  test and Windows drive/UNC-root cases. Cleanup/platform tests and Windows
+  workspace cross-check pass. Residual path-based OS races are documented in
+  `docs/safety.md`.
 
 - 2026-10-23: Plan created; U0 started. Baseline is phase 0 + phase 1 GUI
   analyzer. Next: design tokens/theme, module split, i18n, persistence.

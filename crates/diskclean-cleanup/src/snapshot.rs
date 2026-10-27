@@ -1,11 +1,12 @@
 //! Immutable evidence captured when an item enters the review basket.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use diskclean_platform::{FileKind, metadata};
+use diskclean_platform::{FileKind, FileMeta, MountPoints, check_path_components, metadata};
 use diskclean_rules::{Category, Risk};
 use serde::{Serialize, Serializer};
 
@@ -25,15 +26,80 @@ pub struct FileSnapshot {
     pub measured_size: u64,
     pub logical_size: u64,
     pub modified_unix: i64,
+    pub modified: SystemTime,
     pub dev: u64,
     pub ino: u64,
+    pub nlink: u64,
     pub direct_children: Option<u64>,
+    /// Sorted relative paths and metadata of every descendant. Never partial.
+    pub descendants: Vec<DescendantSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DescendantSnapshot {
+    #[serde(serialize_with = "serialize_path")]
+    pub path: PathBuf,
+    pub kind: ItemKind,
+    pub logical_size: u64,
+    pub allocated_size: u64,
+    pub modified: SystemTime,
+    pub dev: u64,
+    pub ino: u64,
+    pub nlink: u64,
+}
+
+impl DescendantSnapshot {
+    fn from_meta(path: PathBuf, meta: FileMeta) -> io::Result<Self> {
+        let kind = match meta.kind {
+            FileKind::File => ItemKind::File,
+            FileKind::Directory => ItemKind::Directory,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "symlink, reparse point or special file in cleanup candidate",
+                ));
+            }
+        };
+        if meta.dev == 0 || meta.ino == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "file identity unavailable; refusing cleanup",
+            ));
+        }
+        Ok(Self {
+            path,
+            kind,
+            logical_size: meta.logical_size,
+            allocated_size: meta.allocated_size,
+            modified: meta
+                .modified
+                .ok_or_else(|| io::Error::other("modification time unavailable"))?,
+            dev: meta.dev,
+            ino: meta.ino,
+            nlink: meta.nlink,
+        })
+    }
 }
 
 impl FileSnapshot {
     /// Capture metadata without following symlinks. Directories are measured
     /// recursively without crossing mount points.
     pub fn capture(path: &Path) -> io::Result<Self> {
+        Self::capture_with_cancel(path, &|| false)
+    }
+
+    pub(crate) fn capture_with_cancel(
+        path: &Path,
+        cancelled: &dyn Fn() -> bool,
+    ) -> io::Result<Self> {
+        check_path_components(path)?;
+        let mounts = MountPoints::read()?;
+        if mounts.contains(path) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cleanup candidate is a mount point",
+            ));
+        }
         let meta = metadata(path)?;
         let kind = match meta.kind {
             FileKind::File => ItemKind::File,
@@ -52,11 +118,29 @@ impl FileSnapshot {
             }
         };
 
-        let (measured_size, direct_children) = match kind {
-            ItemKind::File => (meta.allocated_size, None),
+        let stamp = DescendantSnapshot::from_meta(PathBuf::new(), meta)?;
+        let (measured_size, direct_children, descendants) = match kind {
+            ItemKind::File => (meta.allocated_size, None, Vec::new()),
             ItemKind::Directory => {
-                let (size, _) = measure_directory(path, meta.dev, MAX_MEASURE_ENTRIES);
-                (size, Some(count_children(path)?))
+                let descendants =
+                    capture_directory(path, meta.dev, MAX_MEASURE_ENTRIES, &mounts, cancelled)?;
+                let children = descendants
+                    .iter()
+                    .filter(|entry| entry.path.components().count() == 1)
+                    .count() as u64;
+                let mut seen = HashSet::new();
+                let size = descendants
+                    .iter()
+                    .filter(|entry| entry.kind == ItemKind::File)
+                    .filter(|entry| seen.insert((entry.dev, entry.ino)))
+                    .fold(0_u64, |size, entry| {
+                        size.saturating_add(entry.allocated_size)
+                    });
+                // Reject changes to the root while walking it as well.
+                if stamp != DescendantSnapshot::from_meta(PathBuf::new(), metadata(path)?)? {
+                    return Err(io::Error::other("directory changed while taking snapshot"));
+                }
+                (size, Some(children), descendants)
             }
         };
 
@@ -65,57 +149,64 @@ impl FileSnapshot {
             measured_size,
             logical_size: meta.logical_size,
             modified_unix: meta.modified_unix,
+            modified: stamp.modified,
             dev: meta.dev,
             ino: meta.ino,
+            nlink: meta.nlink,
             direct_children,
+            descendants,
         })
     }
 }
 
-fn count_children(path: &Path) -> io::Result<u64> {
-    let mut count = 0_u64;
-    for entry in fs::read_dir(path)? {
-        let _ = entry?;
-        count = count.saturating_add(1);
-    }
-    Ok(count)
-}
-
-fn measure_directory(path: &Path, root_dev: u64, max_entries: usize) -> (u64, bool) {
-    let mut total = 0_u64;
-    let mut visited = 0_usize;
+fn capture_directory(
+    path: &Path,
+    root_dev: u64,
+    max_entries: usize,
+    mounts: &MountPoints,
+    cancelled: &dyn Fn() -> bool,
+) -> io::Result<Vec<DescendantSnapshot>> {
+    let mut result = Vec::new();
     let mut stack = vec![path.to_path_buf()];
 
     while let Some(directory) = stack.pop() {
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
+        check_path_components(&directory)?;
+        let entries = fs::read_dir(&directory)?;
         for entry in entries {
-            let Ok(entry) = entry else {
-                continue;
-            };
-            visited = visited.saturating_add(1);
-            if visited > max_entries {
-                return (total, true);
+            if cancelled() {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "cleanup cancelled",
+                ));
             }
-            let Ok(meta) = metadata(&entry.path()) else {
-                continue;
-            };
-            if meta.dev != root_dev && root_dev != 0 {
-                continue;
+            let entry = entry?;
+            if result.len() >= max_entries {
+                return Err(io::Error::other(
+                    "directory snapshot limit reached; refusing partial review",
+                ));
             }
-            match meta.kind {
-                FileKind::File => {
-                    total = total.saturating_add(meta.allocated_size);
-                }
-                FileKind::Directory => stack.push(entry.path()),
-                FileKind::Symlink | FileKind::Other => {}
+            let entry_path = entry.path();
+            let meta = metadata(&entry_path)?;
+            if meta.dev != root_dev || mounts.contains(&entry_path) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "mount boundary inside cleanup candidate",
+                ));
             }
+            let relative = entry_path
+                .strip_prefix(path)
+                .map_err(io::Error::other)?
+                .to_path_buf();
+            let snapshot = DescendantSnapshot::from_meta(relative, meta)?;
+            if snapshot.kind == ItemKind::Directory {
+                stack.push(entry_path);
+            }
+            result.push(snapshot);
         }
     }
 
-    (total, false)
+    result.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(result)
 }
 
 /// A reviewed item. Creating one captures the metadata that must still match
@@ -241,5 +332,50 @@ mod tests {
         let error = CleanupItem::new(&file, "system", Category::System, Risk::SystemOnly)
             .expect_err("must refuse system-only item");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_linked_ancestors_and_descendants() {
+        let temp = tempfile::tempdir().expect("temp");
+        let dir = temp.path().join("dir");
+        fs::create_dir(&dir).expect("dir");
+        fs::write(dir.join("key"), b"secret").expect("key");
+        let alias = temp.path().join("alias");
+        std::os::unix::fs::symlink(&dir, &alias).expect("link");
+        assert!(FileSnapshot::capture(&alias.join("key")).is_err());
+        std::os::unix::fs::symlink(dir.join("key"), dir.join("link")).expect("link");
+        assert!(FileSnapshot::capture(&dir).is_err());
+    }
+
+    #[test]
+    fn refuses_partial_directory_snapshots() {
+        let temp = tempfile::tempdir().expect("temp");
+        fs::write(temp.path().join("a"), b"a").expect("a");
+        fs::write(temp.path().join("b"), b"b").expect("b");
+        let dev = metadata(temp.path()).expect("meta").dev;
+        let mounts = MountPoints::read().expect("mounts");
+        assert!(capture_directory(temp.path(), dev, 1, &mounts, &|| false).is_err());
+        assert!(capture_directory(temp.path(), dev, 10, &mounts, &|| true).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn refuses_mount_roots() {
+        assert!(FileSnapshot::capture(Path::new("/proc")).is_err());
+    }
+
+    #[test]
+    fn directory_size_counts_hardlinks_once() {
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("a");
+        fs::write(&path, b"payload").expect("a");
+        fs::hard_link(&path, temp.path().join("b")).expect("link");
+        let snapshot = FileSnapshot::capture(temp.path()).expect("snapshot");
+        assert_eq!(
+            snapshot.measured_size,
+            metadata(&path).expect("meta").allocated_size
+        );
+        assert_eq!(snapshot.descendants.len(), 2);
     }
 }

@@ -928,8 +928,10 @@ dependencies = [
 name = "diskclean-platform"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "serde",
  "sysinfo",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 

@@ -112,7 +112,8 @@ Wayland, xkbcommon, and Mesa development packages needed by `eframe`.
   (OFL-1.1), `sys-locale` (MIT/Apache-2.0), `blake3`
   (CC0-1.0/Apache-2.0), `toml`, `serde`, `serde_json`, `thiserror`, `clap`,
   `anyhow`, `ctrlc`, `rayon`, `tempfile`, `assert_cmd`, and `predicates`
-  (MIT/Apache-2.0), `sysinfo` (MIT).
+  (MIT/Apache-2.0), `sysinfo` (MIT), `libc` (MIT/Apache-2.0; platform-only
+  no-follow/nonblocking file-open flags).
   Approved for future phases when the feature actually lands:
   `czkawka_core` (MIT), `winreg` (MIT/Apache-2.0), `image`
   (MIT/Apache-2.0). `rusqlite` (MIT) may be used only for Lutris discovery and
@@ -206,6 +207,11 @@ The 2026-10-28 review reopened safety and analyzer acceptance criteria. Follow
 the S1–S5 stabilization checklist in `docs/plan.md` before adding later phases.
 Known gaps include linked ancestors, directory descendants, timestamp precision,
 duplicate keeper validation, cancellation, and analysis indexing/filtering.
+
+S1 complete: linked ancestors/reparse points, precise timestamps, complete
+directory manifests, mount boundaries, Windows roots, and post-audit validation
+are covered. Cleanup/platform tests and Windows cross-check pass. See
+`docs/safety.md` for the residual race inherent in path-based OS trash APIs.
 
 ## Roadmap
 

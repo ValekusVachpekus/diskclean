@@ -21,5 +21,5 @@ pub use discovery::{
     CleanupContext, CleanupIssue, CleanupReport, Recommendation, discover, discover_default,
 };
 pub use protected::{ProtectedPathError, ProtectedPaths};
-pub use snapshot::{CleanupItem, FileSnapshot, ItemKind, snapshot};
+pub use snapshot::{CleanupItem, DescendantSnapshot, FileSnapshot, ItemKind, snapshot};
 pub use trash::{SystemTrash, TrashBackend, TrashError};
