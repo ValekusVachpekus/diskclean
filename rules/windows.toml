@@ -1,0 +1,45 @@
+schema_version = 1
+id = "windows"
+
+[[rules]]
+id = "windows-temp-files"
+category = "temporary"
+risk = "low"
+action = "trash"
+title = { en = "Temporary files", ru = "Временные файлы" }
+description = { en = "Files left in your user temporary folder. Files currently in use will fail safely and stay in place.", ru = "Файлы во временной папке пользователя. Занятые файлы безопасно останутся на месте." }
+
+[[rules.locations]]
+base = "local_app_data"
+path = "Temp"
+mode = "children"
+kind = "files"
+max_entries = 500
+
+[[rules]]
+id = "windows-update-cleanup"
+category = "system"
+risk = "system_only"
+action = "system_command"
+title = { en = "Windows component cleanup", ru = "Очистка компонентов Windows" }
+description = { en = "Removes superseded Windows component versions. The command is shown for an administrator to run; Disk Cleanup never executes it.", ru = "Удаляет заменённые версии компонентов Windows. Команда показывается для запуска администратором; Disk Cleanup никогда её не выполняет." }
+
+[[rules.commands]]
+label = { en = "Start component cleanup", ru = "Запустить очистку компонентов" }
+command = "Dism.exe /Online /Cleanup-Image /StartComponentCleanup"
+requires_admin = true
+note = { en = "Run from an elevated terminal. Windows may take a long time to finish.", ru = "Запустите из терминала с правами администратора. Windows может работать долго." }
+
+[[rules]]
+id = "windows-empty-recycle-bin"
+category = "trash"
+risk = "system_only"
+action = "system_command"
+title = { en = "Empty the Recycle Bin", ru = "Очистить корзину" }
+description = { en = "Permanently empties the Recycle Bin. This is irreversible, so only the command is shown.", ru = "Навсегда очищает корзину. Действие необратимо, поэтому показывается только команда." }
+
+[[rules.commands]]
+label = { en = "Empty Recycle Bin", ru = "Очистить корзину" }
+command = "Clear-RecycleBin -Force"
+requires_admin = false
+note = { en = "Permanent deletion. Make sure the Recycle Bin contains nothing you need.", ru = "Безвозвратное удаление. Убедитесь, что в корзине нет нужных файлов." }

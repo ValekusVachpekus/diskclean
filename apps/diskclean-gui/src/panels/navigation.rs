@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Align, Color32, FontId, Frame, Layout, RichText, Sense, Stroke, vec2};
 
-use crate::app::DiskCleanupApp;
+use crate::app::{DiskCleanupApp, Workspace};
 use crate::i18n::Key;
 use crate::ui::{components, format, icons, theme, tokens};
 
@@ -271,39 +271,50 @@ impl DiskCleanupApp {
             icons::CHART,
             self.text(Key::Analyze),
             None,
-            true,
+            self.workspace == Workspace::Analyze,
             true,
         )
         .clicked()
         {
+            self.workspace = Workspace::Analyze;
             self.tab = crate::app::Tab::Map;
         }
 
-        for (icon, label, tooltip) in [
-            (icons::BROOM, self.text(Key::Cleanup), self.text(Key::Soon)),
+        for (workspace, icon, label) in [
+            (Workspace::Cleanup, icons::BROOM, self.text(Key::Cleanup)),
             (
+                Workspace::Duplicates,
                 icons::DUPLICATES,
                 self.text(Key::Duplicates),
-                self.text(Key::Soon),
-            ),
-            (
-                icons::APPS,
-                self.text(Key::Applications),
-                self.text(Key::Soon),
             ),
         ] {
-            let response = components::nav_item(
+            if components::nav_item(
                 ui,
                 palette,
                 width,
                 icon,
                 label,
-                Some(self.text(Key::Soon)),
-                false,
-                false,
-            );
-            response.on_hover_text(tooltip);
+                None,
+                self.workspace == workspace,
+                true,
+            )
+            .clicked()
+            {
+                self.workspace = workspace;
+            }
         }
+
+        let applications = components::nav_item(
+            ui,
+            palette,
+            width,
+            icons::APPS,
+            self.text(Key::Applications),
+            Some(self.text(Key::Soon)),
+            false,
+            false,
+        );
+        applications.on_hover_text(self.text(Key::Soon));
 
         ui.add_space(10.0);
     }

@@ -77,13 +77,13 @@ impl Palette {
         surface_hover: Color32::from_rgb(0xE4, 0xEA, 0xF1),
         border: Color32::from_rgb(0xD8, 0xE0, 0xE9),
         text: Color32::from_rgb(0x15, 0x20, 0x2B),
-        muted: Color32::from_rgb(0x5E, 0x6C, 0x7D),
-        accent: Color32::from_rgb(0x0F, 0x76, 0x6E),
+        muted: Color32::from_rgb(0x55, 0x63, 0x73),
+        accent: Color32::from_rgb(0x0B, 0x6B, 0x63),
         on_accent: Color32::WHITE,
-        success: Color32::from_rgb(0x1F, 0x8A, 0x4C),
-        warning: Color32::from_rgb(0xA8, 0x6A, 0x0A),
-        danger: Color32::from_rgb(0xC0, 0x39, 0x2B),
-        info: Color32::from_rgb(0x2B, 0x6C, 0xB0),
+        success: Color32::from_rgb(0x14, 0x70, 0x3C),
+        warning: Color32::from_rgb(0x8B, 0x55, 0x00),
+        danger: Color32::from_rgb(0xB7, 0x32, 0x25),
+        info: Color32::from_rgb(0x2A, 0x66, 0xA6),
         tile_text: Color32::WHITE,
     };
 
@@ -115,20 +115,20 @@ impl Palette {
     #[must_use]
     pub(crate) fn tile_color(self, index: usize) -> Color32 {
         const DARK_TILES: [Color32; 6] = [
-            Color32::from_rgb(0x2A, 0x8C, 0x82),
-            Color32::from_rgb(0x3E, 0x6E, 0x8F),
-            Color32::from_rgb(0x70, 0x62, 0x86),
-            Color32::from_rgb(0x9A, 0x74, 0x58),
-            Color32::from_rgb(0x5D, 0x84, 0x4A),
-            Color32::from_rgb(0x7B, 0x64, 0x8F),
+            Color32::from_rgb(0x1F, 0x73, 0x6B),
+            Color32::from_rgb(0x32, 0x5D, 0x7A),
+            Color32::from_rgb(0x5D, 0x51, 0x70),
+            Color32::from_rgb(0x7A, 0x5A, 0x43),
+            Color32::from_rgb(0x4A, 0x69, 0x3A),
+            Color32::from_rgb(0x65, 0x52, 0x75),
         ];
         const LIGHT_TILES: [Color32; 6] = [
-            Color32::from_rgb(0x2A, 0x9D, 0x8F),
-            Color32::from_rgb(0x45, 0x7B, 0x9D),
-            Color32::from_rgb(0x7B, 0x6D, 0x8D),
-            Color32::from_rgb(0xB0, 0x89, 0x68),
-            Color32::from_rgb(0x6A, 0x99, 0x4E),
-            Color32::from_rgb(0x8A, 0x6F, 0x9E),
+            Color32::from_rgb(0x1F, 0x7A, 0x70),
+            Color32::from_rgb(0x35, 0x68, 0x87),
+            Color32::from_rgb(0x63, 0x5A, 0x7A),
+            Color32::from_rgb(0x87, 0x67, 0x4D),
+            Color32::from_rgb(0x55, 0x7A, 0x3E),
+            Color32::from_rgb(0x70, 0x5A, 0x82),
         ];
         if self.dark {
             DARK_TILES[index % DARK_TILES.len()]
@@ -330,4 +330,87 @@ pub(crate) fn semibold(size: f32) -> FontId {
 #[must_use]
 pub(crate) fn medium(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("medium".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn linear_channel(value: u8) -> f32 {
+        let value = f32::from(value) / 255.0;
+        if value <= 0.040_45 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn relative_luminance(color: Color32) -> f32 {
+        0.212_6 * linear_channel(color.r())
+            + 0.715_2 * linear_channel(color.g())
+            + 0.072_2 * linear_channel(color.b())
+    }
+
+    fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+        let (lighter, darker) = {
+            let a = relative_luminance(a);
+            let b = relative_luminance(b);
+            if a > b { (a, b) } else { (b, a) }
+        };
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    fn assert_readable(name: &str, foreground: Color32, background: Color32) {
+        let ratio = contrast_ratio(foreground, background);
+        assert!(
+            ratio >= 4.5,
+            "{name} contrast must be at least 4.5:1, got {ratio:.2}:1"
+        );
+    }
+
+    #[test]
+    fn both_palettes_keep_text_and_status_colors_readable() {
+        for (name, palette) in [("dark", Palette::DARK), ("light", Palette::LIGHT)] {
+            for (surface_name, surface) in [
+                ("window", palette.bg),
+                ("panel", palette.panel),
+                ("surface", palette.surface),
+                ("hover", palette.surface_hover),
+            ] {
+                for (text_name, text) in [
+                    ("text", palette.text),
+                    ("muted", palette.muted),
+                    ("accent", palette.accent),
+                    ("success", palette.success),
+                    ("warning", palette.warning),
+                    ("danger", palette.danger),
+                    ("info", palette.info),
+                ] {
+                    assert_readable(
+                        &format!("{name} {text_name} on {surface_name}"),
+                        text,
+                        surface,
+                    );
+                }
+            }
+            assert_readable(
+                &format!("{name} on-accent text"),
+                palette.on_accent,
+                palette.accent,
+            );
+        }
+    }
+
+    #[test]
+    fn treemap_labels_are_readable_on_every_tile_color() {
+        for (name, palette) in [("dark", Palette::DARK), ("light", Palette::LIGHT)] {
+            for index in 0..6 {
+                assert_readable(
+                    &format!("{name} treemap tile {index}"),
+                    palette.tile_text,
+                    palette.tile_color(index),
+                );
+            }
+        }
+    }
 }

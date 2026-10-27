@@ -246,6 +246,11 @@ define_text! {
     ShortcutRescan => ("Rescan", "Повторить скан"),
     ShortcutSearch => ("Focus search", "Перейти к поиску"),
     ShortcutBack => ("Go up one folder", "На уровень выше"),
+    ShortcutOpenItem => ("Open selected item", "Открыть выбранный элемент"),
+    ShortcutWorkspaces => (
+        "Switch Analyze / Cleanup / Duplicates",
+        "Переключить Анализ / Очистку / Дубликаты"
+    ),
     ShortcutSettings => ("Open settings", "Открыть настройки"),
     ShortcutClose => ("Close dialog / clear focus", "Закрыть диалог / снять фокус"),
     ShortcutHelp => ("Show shortcuts", "Показать горячие клавиши"),
@@ -257,6 +262,196 @@ define_text! {
     ApplicationSubtitle => (
         "Safe disk analysis and cleanup",
         "Безопасный анализ и очистка диска"
+    ),
+    CleanupSubtitle => (
+        "Review recommendations before moving anything to the trash",
+        "Проверьте рекомендации перед перемещением в корзину"
+    ),
+    CleanupDescription => (
+        "Disk Cleanup checks known cache and temporary locations. Nothing is selected by default, and only reviewed items are moved to the operating-system trash.",
+        "Disk Cleanup проверяет известные места кэша и временных файлов. По умолчанию ничего не выбрано, а в корзину перемещаются только проверенные элементы."
+    ),
+    FindRecommendations => ("Find recommendations", "Найти рекомендации"),
+    ScanAgain => ("Scan again", "Сканировать снова"),
+    ScanningRecommendations => (
+        "Checking cleanup locations…",
+        "Проверяем места очистки…"
+    ),
+    RecommendationsFailed => (
+        "Could not collect cleanup recommendations",
+        "Не удалось собрать рекомендации по очистке"
+    ),
+    DiscoveryStopped => (
+        "Cleanup discovery stopped unexpectedly",
+        "Поиск рекомендаций неожиданно остановился"
+    ),
+    ScannerStopped => (
+        "The scanner stopped unexpectedly",
+        "Сканер неожиданно остановился"
+    ),
+    CleanupWorkerStopped => (
+        "The cleanup worker stopped unexpectedly",
+        "Обработчик очистки неожиданно остановился"
+    ),
+    DuplicateWorkerStopped => (
+        "The duplicate cleanup worker stopped unexpectedly",
+        "Обработчик удаления дубликатов неожиданно остановился"
+    ),
+    NoCleanupCandidates => (
+        "No cleanup candidates found",
+        "Кандидаты для очистки не найдены"
+    ),
+    NoCleanupCandidatesBody => (
+        "The known cache and temporary locations are empty or already clean. System commands below are still recommendation-only.",
+        "Известные места кэша и временных файлов пусты или уже очищены. Системные команды ниже по-прежнему носят рекомендательный характер."
+    ),
+    CheckedAt => ("Checked", "Проверено"),
+    PotentialSavings => ("Potential savings", "Можно освободить"),
+    Candidates => ("Candidates", "Кандидаты"),
+    Selected => ("Selected", "Выбрано"),
+    Safe => ("Safe", "Безопасные"),
+    SelectSafe => ("Select safe", "Выбрать безопасные"),
+    ClearSelection => ("Clear selection", "Снять выбор"),
+    NeedsConfirmation => ("Requires confirmation", "Требует подтверждения"),
+    HighRiskSelected => (
+        "High-risk items are selected",
+        "Выбраны элементы высокого риска"
+    ),
+    ReviewBasket => ("Review basket", "Корзина проверки"),
+    ReviewBasketHint => (
+        "Select items above to review them together.",
+        "Выберите элементы выше, чтобы проверить их вместе."
+    ),
+    MoveToTrash => ("Move to Trash…", "Переместить в корзину…"),
+    MoveToTrashTitle => (
+        "Move selected items to the trash?",
+        "Переместить выбранные элементы в корзину?"
+    ),
+    MoveToTrashBody => (
+        "The items will be moved to the operating-system trash after final checks. Nothing is permanently deleted by Disk Cleanup.",
+        "После финальной проверки элементы будут перемещены в корзину операционной системы. Disk Cleanup ничего не удаляет безвозвратно."
+    ),
+    HighRiskAck => (
+        "I reviewed the high-risk items and want to move them to the trash.",
+        "Я проверил элементы высокого риска и хочу переместить их в корзину."
+    ),
+    AuditLog => ("Audit log", "Журнал аудита"),
+    OpenAuditLog => ("Open audit log", "Открыть журнал аудита"),
+    OpenTrash => ("Open trash", "Открыть корзину"),
+    AuditUnavailable => (
+        "The audit log location is unavailable, so cleanup is disabled.",
+        "Расположение журнала аудита недоступно, поэтому очистка отключена."
+    ),
+    Applying => ("Moving to the trash…", "Перемещаем в корзину…"),
+    ApplyComplete => ("Moved to the trash", "Перемещено в корзину"),
+    ApplyPartial => (
+        "Cleanup finished with some failures",
+        "Очистка завершена с ошибками"
+    ),
+    ApplyFailed => (
+        "Cleanup could not start",
+        "Не удалось начать очистку"
+    ),
+    NothingPermanentlyDeleted => (
+        "Trash contents can be restored until the trash is emptied.",
+        "Содержимое корзины можно восстановить, пока корзина не очищена."
+    ),
+    SystemCommands => ("System commands", "Системные команды"),
+    CommandOnly => ("Recommendation only", "Только рекомендация"),
+    RequiresAdmin => (
+        "Requires administrator rights",
+        "Требуются права администратора"
+    ),
+    CopyCommand => ("Copy command", "Скопировать команду"),
+    CopiedCommand => ("Command copied", "Команда скопирована"),
+    SystemCommandsNote => (
+        "Disk Cleanup never runs these commands. Review and run them yourself in a terminal if needed.",
+        "Disk Cleanup никогда не выполняет эти команды. При необходимости проверьте и запустите их самостоятельно в терминале."
+    ),
+    ShowMore => ("Show more", "Показать ещё"),
+    ShowLess => ("Show less", "Скрыть"),
+    RiskLow => ("Low risk", "Низкий риск"),
+    RiskMedium => ("Review", "Проверить"),
+    RiskHigh => ("High risk", "Высокий риск"),
+    RiskSystem => ("Command only", "Только команда"),
+    CategoryTemporary => ("Temporary", "Временные файлы"),
+    CategoryAppCache => ("App cache", "Кэш приложений"),
+    CategoryPackageCache => ("Package cache", "Кэш пакетов"),
+    CategoryTrash => ("Trash", "Корзина"),
+    CategoryOldDownloads => ("Old downloads", "Старые загрузки"),
+    CategoryLargeOldFiles => ("Large old files", "Крупные старые файлы"),
+    CategoryDevArtifacts => ("Build artifacts", "Артефакты сборки"),
+    CategoryDuplicates => ("Duplicates", "Дубликаты"),
+    CategorySystem => ("System", "Система"),
+    CleanupIssues => ("Skipped paths", "Пропущенные пути"),
+    SelectItemsHint => (
+        "Nothing is selected. Review candidates and choose what to remove.",
+        "Ничего не выбрано. Проверьте кандидатов и выберите, что удалить."
+    ),
+    FailedItems => ("failed", "с ошибкой"),
+    Dismiss => ("Dismiss", "Закрыть"),
+    DuplicatesSubtitle => (
+        "Find identical files and free space safely",
+        "Находите одинаковые файлы и освобождайте место безопасно"
+    ),
+    DuplicatesDescription => (
+        "Exact duplicates are verified by size, a content prefix, and a full BLAKE3 hash. Nothing is selected automatically.",
+        "Точные дубликаты проверяются по размеру, префиксу содержимого и полному хешу BLAKE3. Ничего не выбирается автоматически."
+    ),
+    FindDuplicates => ("Find duplicates", "Найти дубликаты"),
+    ScanningDuplicates => (
+        "Hashing candidate files…",
+        "Хешируем файлы-кандидаты…"
+    ),
+    DuplicatesFailed => (
+        "Could not search for duplicates",
+        "Не удалось найти дубликаты"
+    ),
+    DuplicateSearchStopped => (
+        "The duplicate search stopped unexpectedly",
+        "Поиск дубликатов неожиданно остановился"
+    ),
+    NoDuplicates => ("No exact duplicates found", "Точные дубликаты не найдены"),
+    NoDuplicatesBody => (
+        "Try a lower minimum size or scan a different folder.",
+        "Попробуйте уменьшить минимальный размер или выбрать другую папку."
+    ),
+    DuplicateGroups => ("Duplicate groups", "Группы дубликатов"),
+    Copies => ("copies", "копий"),
+    Each => ("each", "каждый"),
+    Reclaimable => ("Reclaimable", "Можно освободить"),
+    Keep => ("Keep", "Оставить"),
+    Keeper => ("Keeper", "Оригинал"),
+    SelectRest => ("Select the rest", "Выбрать остальные"),
+    SelectAllExceptKeepers => (
+        "Select all except keepers",
+        "Выбрать все, кроме оригиналов"
+    ),
+    DuplicatesReviewNote => (
+        "Pick one keeper per group. The other copies can be moved to the trash through the same audited pipeline.",
+        "Выберите оригинал в каждой группе. Остальные копии можно переместить в корзину через тот же журналируемый процесс."
+    ),
+    DuplicatesNeedScan => (
+        "Scan a folder first",
+        "Сначала просканируйте папку"
+    ),
+    DuplicatesNeedScanBody => (
+        "Duplicate search uses the folder from the current analysis scan. Scan a folder to begin.",
+        "Поиск дубликатов использует папку текущего анализа. Просканируйте папку, чтобы начать."
+    ),
+    HardlinksSkipped => (
+        "hardlink alias(es) skipped",
+        "алиас(ов) жёстких ссылок пропущено"
+    ),
+    HashedBytes => ("hashed", "прохешировано"),
+    ShowAllCopies => ("Show all copies", "Показать все копии"),
+    DuplicateTrashBody => (
+        "Selected extra copies will be moved to the trash. Keepers and unselected files stay in place.",
+        "Выбранные лишние копии будут перемещены в корзину. Оригиналы и невыбранные файлы останутся на месте."
+    ),
+    DuplicatesBasketHint => (
+        "Select extra copies above. Keepers are never selected automatically.",
+        "Выберите лишние копии выше. Оригиналы никогда не выбираются автоматически."
     ),
 }
 
@@ -296,5 +491,38 @@ pub(crate) fn issues_text(language: Language, n: u64) -> String {
     match language.resolved() {
         Language::Russian => format!("{n} {}", ru_plural(n, "проблема", "проблемы", "проблем")),
         _ => format!("{n} {}", if n == 1 { "issue" } else { "issues" }),
+    }
+}
+
+#[must_use]
+pub(crate) fn items_text(language: Language, n: u64) -> String {
+    match language.resolved() {
+        Language::Russian => format!("{n} {}", ru_plural(n, "элемент", "элемента", "элементов")),
+        _ => format!("{n} {}", if n == 1 { "item" } else { "items" }),
+    }
+}
+
+#[must_use]
+pub(crate) fn groups_text(language: Language, n: u64) -> String {
+    match language.resolved() {
+        Language::Russian => format!("{n} {}", ru_plural(n, "группа", "группы", "групп")),
+        _ => format!("{n} {}", if n == 1 { "group" } else { "groups" }),
+    }
+}
+
+#[must_use]
+pub(crate) fn copies_text(language: Language, n: u64) -> String {
+    match language.resolved() {
+        Language::Russian => format!("{n} {}", ru_plural(n, "копия", "копии", "копий")),
+        _ => format!("{n} {}", if n == 1 { "copy" } else { "copies" }),
+    }
+}
+
+#[must_use]
+pub(crate) fn hardlinks_text(language: Language, n: u64) -> String {
+    if language.is_russian() {
+        format!("жёстких ссылок пропущено: {n}")
+    } else {
+        format!("hardlink aliases skipped: {n}")
     }
 }

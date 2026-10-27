@@ -1,0 +1,103 @@
+schema_version = 1
+id = "linux"
+
+[[rules]]
+id = "pip-cache"
+category = "app_cache"
+risk = "low"
+action = "trash"
+title = { en = "pip download cache", ru = "Кэш загрузок pip" }
+description = { en = "Wheel and source archives downloaded by pip. pip downloads them again when needed.", ru = "Архивы wheel и исходников, загруженные pip. При необходимости pip загрузит их снова." }
+
+[[rules.locations]]
+base = "cache"
+path = "pip"
+mode = "path"
+kind = "directories"
+max_entries = 10
+
+[[rules]]
+id = "npm-cache"
+category = "package_cache"
+risk = "low"
+action = "trash"
+title = { en = "npm cache", ru = "Кэш npm" }
+description = { en = "Downloaded npm package content. The next install will fetch what it needs.", ru = "Загруженное содержимое пакетов npm. Следующая установка загрузит необходимое." }
+
+[[rules.locations]]
+base = "home"
+path = ".npm/_cacache"
+mode = "path"
+kind = "directories"
+max_entries = 10
+
+[[rules]]
+id = "cargo-registry-cache"
+category = "package_cache"
+risk = "low"
+action = "trash"
+title = { en = "Cargo registry cache", ru = "Кэш реестра Cargo" }
+description = { en = "Downloaded crate archives in Cargo's registry cache. Cargo fetches missing crates again.", ru = "Загруженные архивы крейтов в кэше реестра Cargo. Недостающие крейты будут загружены снова." }
+
+[[rules.locations]]
+base = "home"
+path = ".cargo/registry/cache"
+mode = "path"
+kind = "directories"
+max_entries = 10
+
+[[rules]]
+id = "apt-package-cache"
+category = "system"
+risk = "system_only"
+action = "system_command"
+title = { en = "apt package cache", ru = "Кэш пакетов apt" }
+description = { en = "Removes downloaded .deb packages from the system package cache. This command is shown for you to run; Disk Cleanup never executes it.", ru = "Удаляет загруженные пакеты .deb из системного кэша. Команда только показывается: Disk Cleanup никогда её не выполняет." }
+
+[[rules.commands]]
+label = { en = "Clean apt package cache", ru = "Очистить кэш пакетов apt" }
+command = "sudo apt-get clean"
+requires_admin = true
+note = { en = "Requires administrator rights and permanently removes cached packages.", ru = "Требует прав администратора и навсегда удаляет кэшированные пакеты." }
+
+[[rules]]
+id = "systemd-journal-vacuum"
+category = "system"
+risk = "system_only"
+action = "system_command"
+title = { en = "Old system journal", ru = "Старый системный журнал" }
+description = { en = "Trims the systemd journal to the last 14 days. Review the command before running it in a terminal.", ru = "Сокращает журнал systemd до последних 14 дней. Проверьте команду перед запуском в терминале." }
+
+[[rules.commands]]
+label = { en = "Vacuum journal to 14 days", ru = "Оставить журнал за 14 дней" }
+command = "sudo journalctl --vacuum-time=14d"
+requires_admin = true
+note = { en = "Requires administrator rights. Journal history older than 14 days is deleted permanently.", ru = "Требует прав администратора. Записи журнала старше 14 дней удаляются навсегда." }
+
+[[rules]]
+id = "empty-trash"
+category = "trash"
+risk = "system_only"
+action = "system_command"
+title = { en = "Empty the trash", ru = "Очистить корзину" }
+description = { en = "Permanently empties the desktop trash. This is irreversible, so the app only shows the command and never runs it.", ru = "Навсегда очищает корзину рабочего стола. Действие необратимо, поэтому приложение только показывает команду и никогда её не выполняет." }
+
+[[rules.commands]]
+label = { en = "Empty trash with gio", ru = "Очистить корзину через gio" }
+command = "gio trash --empty"
+requires_admin = false
+note = { en = "Permanent deletion. Make sure the trash no longer contains anything you need.", ru = "Безвозвратное удаление. Убедитесь, что в корзине не осталось нужных файлов." }
+
+[[rules]]
+id = "flatpak-unused"
+category = "system"
+risk = "system_only"
+action = "system_command"
+title = { en = "Unused Flatpak runtimes", ru = "Неиспользуемые среды Flatpak" }
+description = { en = "Removes runtimes no installed Flatpak application uses. The command is recommendation-only.", ru = "Удаляет среды, которые не используются установленными приложениями Flatpak. Команда носит рекомендательный характер." }
+
+[[rules.commands]]
+label = { en = "Remove unused Flatpak runtimes", ru = "Удалить неиспользуемые среды Flatpak" }
+command = "flatpak uninstall --unused"
+requires_admin = false
+note = { en = "Review the list of runtimes before confirming.", ru = "Проверьте список сред перед подтверждением." }

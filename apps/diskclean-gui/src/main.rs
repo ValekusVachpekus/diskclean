@@ -5,6 +5,8 @@ mod dialogs;
 mod i18n;
 mod panels;
 mod settings;
+#[cfg(test)]
+mod tests;
 mod treemap;
 mod ui;
 mod views;

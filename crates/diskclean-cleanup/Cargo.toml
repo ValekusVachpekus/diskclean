@@ -1,0 +1,22 @@
+[package]
+name = "diskclean-cleanup"
+description = "Review basket, protected-path policy, trash backend, and audit log for Disk Cleanup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+diskclean-platform = { path = "../diskclean-platform" }
+diskclean-rules = { path = "../diskclean-rules" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+trash.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

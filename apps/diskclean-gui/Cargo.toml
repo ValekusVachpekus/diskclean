@@ -12,8 +12,10 @@ name = "diskclean-gui"
 path = "src/main.rs"
 
 [dependencies]
+diskclean-cleanup = { path = "../../crates/diskclean-cleanup" }
 diskclean-core = { path = "../../crates/diskclean-core" }
 diskclean-platform = { path = "../../crates/diskclean-platform" }
+diskclean-rules = { path = "../../crates/diskclean-rules" }
 egui_extras = "0.37"
 serde = { workspace = true }
 sys-locale = "0.3"
@@ -43,6 +45,7 @@ rfd = { version = "0.17", default-features = false }
 
 [dev-dependencies]
 egui_kittest = "0.37"
+tempfile.workspace = true
 
 [lints]
 workspace = true

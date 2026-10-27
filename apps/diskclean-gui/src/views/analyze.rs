@@ -10,14 +10,22 @@ use eframe::egui::{
 use egui_extras::{Column, TableBuilder};
 
 use crate::app::{
-    DiskCleanupApp, SortKey, SortState, Tab, files_label, folders_label, kind_icon, kind_label,
-    search_field_id, sort_children_by_size, sort_ids,
+    DiskCleanupApp, SortKey, SortState, Tab, Workspace, files_label, folders_label, kind_icon,
+    kind_label, search_field_id, sort_children_by_size, sort_ids,
 };
 use crate::i18n::Key;
 use crate::ui::{components, format, icons, theme, tokens};
 
 impl DiskCleanupApp {
     pub(crate) fn central(&mut self, ui: &mut egui::Ui) {
+        match self.workspace {
+            Workspace::Analyze => self.analyze_workspace(ui),
+            Workspace::Cleanup => self.cleanup_workspace(ui),
+            Workspace::Duplicates => self.duplicates_workspace(ui),
+        }
+    }
+
+    fn analyze_workspace(&mut self, ui: &mut egui::Ui) {
         let Some(tree) = self.tree.clone() else {
             self.overview(ui);
             return;
@@ -416,9 +424,11 @@ impl DiskCleanupApp {
             if response.clicked() {
                 clicked = Some(tile.id);
             }
+            let tile_path = tree.path(tile.id);
+            response.context_menu(|ui| self.path_context_menu(ui, &tile_path));
             response.on_hover_ui(|ui| {
                 ui.label(RichText::new(node.display_name()).font(theme::semibold(13.0)));
-                ui.label(tree.path(tile.id).display().to_string());
+                ui.label(tile_path.display().to_string());
                 ui.label(format!(
                     "{}  ·  {}",
                     format::size(self.language(), node.allocated_size),
@@ -597,6 +607,7 @@ impl DiskCleanupApp {
                     if response.clicked() {
                         chosen = Some(id);
                     }
+                    response.context_menu(|ui| self.path_context_menu(ui, &path));
                     response.on_hover_text(path.display().to_string());
                 });
             });
@@ -606,6 +617,21 @@ impl DiskCleanupApp {
         }
         if let Some(id) = chosen {
             self.selected = id;
+        }
+    }
+
+    fn path_context_menu(&mut self, ui: &mut egui::Ui, path: &std::path::Path) {
+        if ui.button(self.text(Key::Open)).clicked() {
+            self.open_path(path);
+            ui.close();
+        }
+        if ui.button(self.text(Key::Reveal)).clicked() {
+            self.reveal_path(path);
+            ui.close();
+        }
+        if ui.button(self.text(Key::CopyPath)).clicked() {
+            self.copy_path(ui.ctx(), path);
+            ui.close();
         }
     }
 
@@ -738,6 +764,7 @@ impl DiskCleanupApp {
                     if response.clicked() {
                         chosen = Some(id);
                     }
+                    response.context_menu(|ui| self.path_context_menu(ui, &path));
                     response.on_hover_text(path.display().to_string());
                 });
             });

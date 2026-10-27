@@ -45,6 +45,8 @@ pub(crate) fn icon_button(ui: &mut Ui, _palette: Palette, icon: &str, tooltip: &
             .fill(Color32::TRANSPARENT)
             .min_size(vec2(28.0, 28.0)),
     );
+    let accessible_name = if tooltip.is_empty() { icon } else { tooltip };
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, accessible_name));
     if tooltip.is_empty() {
         response.on_hover_text("")
     } else {

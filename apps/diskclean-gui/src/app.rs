@@ -17,6 +17,16 @@ use crate::i18n::{self, Key as TextKey, Language};
 use crate::settings::Settings;
 use crate::ui::theme::{self, Palette, ThemeMode};
 use crate::ui::tokens;
+use crate::views::cleanup::CleanupWorkspace;
+use crate::views::duplicates::DuplicateWorkspace;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Workspace {
+    #[default]
+    Analyze,
+    Cleanup,
+    Duplicates,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -105,6 +115,9 @@ pub(crate) struct Toast {
 pub(crate) struct DiskCleanupApp {
     pub(crate) settings: Settings,
     pub(crate) palette: Palette,
+    pub(crate) workspace: Workspace,
+    pub(crate) cleanup: CleanupWorkspace,
+    pub(crate) duplicates: DuplicateWorkspace,
     pub(crate) path_input: String,
     pub(crate) volumes: Vec<VolumeInfo>,
     pub(crate) cache: Vec<CachedScan>,
@@ -150,6 +163,9 @@ impl DiskCleanupApp {
         Self {
             settings,
             palette,
+            workspace: Workspace::Analyze,
+            cleanup: CleanupWorkspace::default(),
+            duplicates: DuplicateWorkspace::default(),
             path_input: initial.display().to_string(),
             volumes: list_volumes(),
             cache: Vec::new(),
@@ -170,6 +186,46 @@ impl DiskCleanupApp {
             wide: true,
             applied_theme,
             applied_system_theme,
+        }
+    }
+
+    /// Build a window-independent app state for headless UI tests.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(settings: Settings, tree: Option<Arc<Tree>>) -> Self {
+        let path_input = tree
+            .as_ref()
+            .map(|tree| tree.root_path.display().to_string())
+            .unwrap_or_default();
+        let top_folders = tree
+            .as_ref()
+            .map_or_else(Vec::new, |tree| compute_top_folders(tree));
+
+        Self {
+            palette: Palette::for_theme(settings.theme, None),
+            settings,
+            workspace: Workspace::Analyze,
+            cleanup: CleanupWorkspace::default(),
+            duplicates: DuplicateWorkspace::default(),
+            path_input,
+            volumes: Vec::new(),
+            cache: Vec::new(),
+            tree,
+            top_folders,
+            selected: ROOT_ID,
+            state: ScanState::Idle,
+            tab: Tab::Map,
+            filters: Filters::default(),
+            pending_scan: false,
+            settings_open: false,
+            help_open: false,
+            toast: None,
+            focus_search: false,
+            file_sort: SortState::SIZE,
+            folder_sort: SortState::SIZE,
+            narrow_inspector: false,
+            wide: true,
+            applied_theme: ThemeMode::System,
+            applied_system_theme: None,
         }
     }
 
@@ -196,6 +252,7 @@ impl DiskCleanupApp {
             return;
         }
 
+        self.workspace = Workspace::Analyze;
         let path = PathBuf::from(path_text);
         let options = ScanOptions {
             top_files: 2_000,
@@ -264,6 +321,7 @@ impl DiskCleanupApp {
                 self.tab = Tab::Map;
                 self.narrow_inspector = false;
                 self.state = ScanState::Idle;
+                self.duplicates.reset_for_new_root();
             }
             Some(Ok(Err(ScanFailure::Cancelled))) => {
                 self.state = ScanState::Idle;
@@ -277,7 +335,7 @@ impl DiskCleanupApp {
                 self.notify(error, ToastKind::Error);
             }
             Some(Err(TryRecvError::Disconnected)) => {
-                let message = "scanner thread stopped unexpectedly".to_owned();
+                let message = self.text(TextKey::ScannerStopped).to_owned();
                 self.state = ScanState::Failed(message.clone());
                 self.notify(message, ToastKind::Error);
             }
@@ -290,6 +348,11 @@ impl DiskCleanupApp {
     }
 
     pub(crate) fn load_cached(&mut self, path: PathBuf, tree: Arc<Tree>) {
+        let root_changed = self
+            .tree
+            .as_ref()
+            .is_none_or(|current| current.root_path != path);
+        self.workspace = Workspace::Analyze;
         self.path_input = path.display().to_string();
         self.settings.last_path = self.path_input.clone();
         self.settings.remember_root(&path);
@@ -299,6 +362,9 @@ impl DiskCleanupApp {
         self.tab = Tab::Map;
         self.narrow_inspector = false;
         self.state = ScanState::Idle;
+        if root_changed {
+            self.duplicates.reset_for_new_root();
+        }
     }
 
     pub(crate) fn min_size(&self) -> u64 {
@@ -387,6 +453,10 @@ impl DiskCleanupApp {
         self.open_target(&target);
     }
 
+    pub(crate) fn open_file_path(&mut self, path: &Path) {
+        self.open_target(path);
+    }
+
     fn open_target(&mut self, target: &Path) {
         let result = open_in_file_manager(target);
         if let Err(error) = result {
@@ -398,7 +468,11 @@ impl DiskCleanupApp {
     }
 
     fn handle_shortcuts(&mut self, context: &egui::Context) {
-        if self.settings_open || self.help_open {
+        if self.settings_open
+            || self.help_open
+            || self.cleanup.confirm_open
+            || self.duplicates.confirm_open
+        {
             return;
         }
 
@@ -406,9 +480,14 @@ impl DiskCleanupApp {
         let mut scan = false;
         let mut settings = false;
         let mut focus_search = false;
-        let mut tab = None;
+        let mut workspace = None;
         let mut escape = false;
-        let mut up = false;
+        let mut go_up = false;
+        let mut open_selected = false;
+        let mut arrow_up = false;
+        let mut arrow_down = false;
+        let mut arrow_left = false;
+        let mut arrow_right = false;
 
         context.input_mut(|input| {
             if input.modifiers.command && input.key_pressed(Key::O) {
@@ -425,25 +504,34 @@ impl DiskCleanupApp {
                 settings = true;
             }
             if input.modifiers.command && input.key_pressed(Key::Num1) {
-                tab = Some(Tab::Map);
+                workspace = Some(Workspace::Analyze);
             }
             if input.modifiers.command && input.key_pressed(Key::Num2) {
-                tab = Some(Tab::Files);
+                workspace = Some(Workspace::Cleanup);
             }
             if input.modifiers.command && input.key_pressed(Key::Num3) {
-                tab = Some(Tab::Folders);
-            }
-            if input.modifiers.command && input.key_pressed(Key::Num4) {
-                tab = Some(Tab::Types);
-            }
-            if input.modifiers.command && input.key_pressed(Key::Num5) {
-                tab = Some(Tab::Issues);
+                workspace = Some(Workspace::Duplicates);
             }
             if input.key_pressed(Key::Escape) {
                 escape = true;
             }
             if input.key_pressed(Key::Backspace) && !input.modifiers.command {
-                up = true;
+                go_up = true;
+            }
+            if input.key_pressed(Key::Enter) && !input.modifiers.command && !input.modifiers.alt {
+                open_selected = true;
+            }
+            if input.key_pressed(Key::ArrowUp) {
+                arrow_up = true;
+            }
+            if input.key_pressed(Key::ArrowDown) {
+                arrow_down = true;
+            }
+            if input.key_pressed(Key::ArrowLeft) {
+                arrow_left = true;
+            }
+            if input.key_pressed(Key::ArrowRight) {
+                arrow_right = true;
             }
         });
 
@@ -454,33 +542,76 @@ impl DiskCleanupApp {
             self.path_input = folder.display().to_string();
             self.start_scan();
         }
+        if let Some(workspace) = workspace {
+            self.workspace = workspace;
+        }
         if scan {
-            self.start_scan();
+            match self.workspace {
+                Workspace::Analyze => self.start_scan(),
+                Workspace::Cleanup => self.start_cleanup_discovery(),
+                Workspace::Duplicates => self.start_duplicate_search(),
+            }
         }
         if settings {
             self.settings_open = true;
         }
-        if focus_search && self.tree.is_some() {
+        if focus_search && self.workspace == Workspace::Analyze && self.tree.is_some() {
             self.focus_search = true;
         }
-        if let Some(tab) = tab {
-            self.tab = tab;
-        }
-        if escape && !context.egui_wants_keyboard_input() {
+
+        let keyboard_input = context.egui_wants_keyboard_input();
+        if escape && !keyboard_input {
             if !self.filters.search.is_empty() || self.filters_active() > 0 {
                 self.clear_filters();
-            } else if let Some(tree) = self.tree.clone()
+            } else if self.workspace == Workspace::Analyze
+                && let Some(tree) = self.tree.clone()
                 && let Some(parent) = tree.node(self.selected).parent
             {
                 self.selected = parent;
             }
         }
-        if up
-            && !context.egui_wants_keyboard_input()
+        if go_up
+            && !keyboard_input
+            && self.workspace == Workspace::Analyze
             && let Some(tree) = self.tree.clone()
             && let Some(parent) = tree.node(self.selected).parent
         {
             self.selected = parent;
+        }
+        if keyboard_input || self.workspace != Workspace::Analyze {
+            return;
+        }
+        if open_selected && let Some(tree) = self.tree.clone() {
+            let path = tree.path(self.selected);
+            self.open_path(&path);
+        }
+        if let Some(tree) = self.tree.clone() {
+            if arrow_left {
+                if let Some(parent) = tree.node(self.selected).parent {
+                    self.selected = parent;
+                }
+            } else if arrow_right {
+                if let Some(child) = tree.node(self.selected).first_child {
+                    self.selected = child;
+                }
+            } else if (arrow_up || arrow_down)
+                && let Some(parent) = tree.node(self.selected).parent
+            {
+                let siblings: Vec<NodeId> = tree.children(parent).collect();
+                if let Some(index) = siblings
+                    .iter()
+                    .position(|candidate| *candidate == self.selected)
+                {
+                    let target = if arrow_up {
+                        index.checked_sub(1).and_then(|index| siblings.get(index))
+                    } else {
+                        siblings.get(index + 1)
+                    };
+                    if let Some(target) = target {
+                        self.selected = *target;
+                    }
+                }
+            }
         }
     }
 
@@ -495,8 +626,12 @@ impl DiskCleanupApp {
     }
 }
 
-impl eframe::App for DiskCleanupApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+impl DiskCleanupApp {
+    /// Draw the complete application shell.
+    ///
+    /// Kept separate from [`eframe::App::ui`] so headless tests can drive the
+    /// real shell without constructing an [`eframe::Frame`].
+    pub(crate) fn show(&mut self, ui: &mut egui::Ui) {
         let context = ui.ctx().clone();
         self.apply_theme_if_needed(&context);
 
@@ -506,9 +641,12 @@ impl eframe::App for DiskCleanupApp {
         }
         self.handle_shortcuts(&context);
         self.poll_scan(&context);
+        self.poll_cleanup(&context);
+        self.poll_duplicates(&context);
 
         self.wide = ui.available_width() >= 1_180.0;
-        let show_inspector = self.tree.is_some()
+        let show_inspector = self.workspace == Workspace::Analyze
+            && self.tree.is_some()
             && self.settings.inspector_open
             && (self.wide || self.narrow_inspector);
 
@@ -572,7 +710,15 @@ impl eframe::App for DiskCleanupApp {
 
         self.settings_dialog(&context);
         self.help_dialog(&context);
+        self.cleanup_confirm_dialog(&context);
+        self.duplicates_confirm_dialog(&context);
         self.show_toast(&context);
+    }
+}
+
+impl eframe::App for DiskCleanupApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.show(ui);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

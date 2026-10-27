@@ -18,7 +18,7 @@ actions with an explanation and a risk level.
 ## Fixed product decisions
 
 - Language: Rust 2024.
-- GUI: `eframe` / `egui` (phase 1).
+- GUI: `eframe` / `egui`.
 - UI languages: English and Russian, switchable at runtime; system locale is
   the default when detectable. All user-facing text and rule explanations are
   localized.
@@ -39,18 +39,19 @@ actions with an explanation and a risk level.
 ```
 crates/diskclean-core/      scanner, tree model, duplicate engine, reports
 crates/diskclean-platform/  OS-specific metadata, volumes, trash, apps, packages
-crates/diskclean-rules/     rule schema/engine and built-in rule packs (phase 2)
-crates/diskclean-cleanup/   review basket, protected paths, revalidation, audit (planned phase 2)
+crates/diskclean-rules/     rule schema/engine and built-in rule packs
+crates/diskclean-cleanup/   review basket, protected paths, revalidation, trash, audit
 crates/diskclean-cli/       clap CLI and JSON output
-apps/diskclean-gui/         eframe/egui application (phase 1)
-rules/                      common/linux/windows TOML rule packs (phase 2)
+apps/diskclean-gui/         eframe/egui application
+rules/                      common/linux/windows TOML rule packs
 docs/plan.md                durable UI/UX and feature delivery plan
+docs/ui.md                  design system, layout, accessibility, snapshot plan
 ```
 
-`diskclean-cleanup` does not exist yet; create it in phase 2. It will own all
-filesystem mutation, the `TrashBackend` trait, protected-path policy,
-revalidation, and the JSONL audit log. `diskclean-rules` stays pure and never
-mutates the filesystem.
+`diskclean-cleanup` owns all filesystem mutation: the `TrashBackend` trait,
+protected-path policy, item snapshots/revalidation, and the JSONL audit log.
+The GUI and CLI share the same audited apply pipeline. `diskclean-rules` stays
+pure and never mutates the filesystem.
 
 The core must not depend on the GUI. The platform crate exposes low-level OS
 facts; the core maps them into its own tree model. Avoid circular dependencies.
@@ -84,8 +85,12 @@ cargo run -p diskclean-core --example synthetic_scan --release
 cargo run -p diskclean-cli -- volumes
 cargo run -p diskclean-cli -- scan . --json
 cargo run -p diskclean-cli -- scan / --json --top 50 --exclude /proc --exclude /sys
+cargo run -p diskclean-cli -- recommend
+cargo run -p diskclean-cli -- clean --dry-run
+cargo run -p diskclean-cli -- duplicates . --json --min-size 1M
 cargo run -p diskclean-gui -- .
 cargo run -p diskclean-gui -- /path/to/directory
+cargo check --workspace --target x86_64-pc-windows-gnu
 ```
 
 CI additionally builds on `windows-latest`. Linux jobs install the X11,
@@ -101,13 +106,15 @@ Wayland, xkbcommon, and Mesa development packages needed by `eframe`.
 - Use `Path`/`PathBuf`/`OsString` internally. Only convert to `String` at the
   JSON/display boundary, and use lossy conversion there.
 - Add unit tests for every tree/size/hardlink/symlink behavior.
-- Keep dependencies permissive and GPL-compatible. Approved now:
-  `czkawka_core` (MIT), `egui`/`eframe`/`egui_extras`/`egui_kittest`
-  (MIT/Apache-2.0), `rfd` (MIT), `trash` (MIT), Phosphor icons (MIT/Apache-2.0),
-  Inter and JetBrains Mono (OFL-1.1), `sys-locale` (MIT/Apache-2.0).
-  Approved for the listed future phases when the feature actually lands:
-  `blake3` (CC0-1.0/Apache-2.0), `toml` and `globset` (MIT/Apache-2.0),
-  `serde_json` (MIT/Apache-2.0), `winreg` (MIT/Apache-2.0), `image`
+- Keep dependencies permissive and GPL-compatible. Approved and in use:
+  `egui`/`eframe`/`egui_extras`/`egui_kittest` (MIT/Apache-2.0), `rfd` (MIT),
+  `trash` (MIT), Phosphor icons (MIT/Apache-2.0), Inter and JetBrains Mono
+  (OFL-1.1), `sys-locale` (MIT/Apache-2.0), `blake3`
+  (CC0-1.0/Apache-2.0), `toml`, `serde`, `serde_json`, `thiserror`, `clap`,
+  `anyhow`, `ctrlc`, `rayon`, `tempfile`, `assert_cmd`, and `predicates`
+  (MIT/Apache-2.0), `sysinfo` (MIT).
+  Approved for future phases when the feature actually lands:
+  `czkawka_core` (MIT), `winreg` (MIT/Apache-2.0), `image`
   (MIT/Apache-2.0). `rusqlite` (MIT) may be used only for Lutris discovery and
   only behind a feature/`cfg`; prefer parsing configs if practical.
   Do not copy AGPL code from Squirreldisk. QDirStat is GPL-2.0 and its code is
@@ -128,7 +135,7 @@ Phase 0 foundation complete:
 - [x] CI workflow for Linux and Windows (Windows target cross-checked locally;
       hosted CI runs after the repository is pushed)
 
-Phase 1 GUI analyzer implemented:
+Phase 1 GUI analyzer complete:
 
 - [x] Volume picker, recent roots, path entry, and native folder picker
 - [x] Background scan with progress and cancellation
@@ -139,23 +146,74 @@ Phase 1 GUI analyzer implemented:
 - [x] Responsive panels for narrow tiled windows
 - [x] Linux smoke test; Windows target compiles and passes clippy
 - [x] Linux release binaries built locally
-- [ ] Interactive Windows test and automated GUI tests
+- [x] Automated headless GUI tests
+- [ ] Interactive Windows runtime test
 
-UI/UX redesign U0 is in progress (see `docs/plan.md`). The current GUI is still
-the phase-1 implementation until the new shell lands; do not mark U0 or U1 done
-early.
+UI/UX redesign U0–U2 complete (details in `docs/plan.md`):
 
-Later phases are not started.
+- [x] Custom graphite/teal design system, dark/light/system themes, embedded
+      Inter, JetBrains Mono, and Phosphor icons
+- [x] Top command bar, navigation, central workspaces, contextual inspector,
+      status bar, consistent empty/progress/error/toast states
+- [x] Runtime English/Russian switch, persisted settings, panel widths, and
+      recent roots
+- [x] Analyze workspace with treemap, breadcrumbs, sortable virtualized tables,
+      filters/chips, and keyboard shortcuts
+- [x] `egui_kittest` shell tests for empty/analyze/cleanup/duplicates, commands
+      filtering, keeper selection, stale-root invalidation, workspace
+      shortcuts, and runtime theme/language switching
+- [x] Automated palette contrast checks and 125%/200% high-DPI layout tests
+- [x] `docs/ui.md` design system, interaction, accessibility, and snapshot plan
+- [ ] U3 manual visual smoke, 100k performance pass, snapshots, screenshots
+
+Safe cleanup complete:
+
+- [x] Built-in common/Linux/Windows TOML rules, including recommendation-only
+      system commands
+- [x] Cleanup discovery, risk filters, safe-select, grouped cards, and a
+      review basket with explicit confirmation
+- [x] Protected-path policy, item snapshots, revalidation, OS-trash-only
+      mutation, and JSONL intent/result audit
+- [x] High-risk acknowledgement; system commands are never selectable or
+      executed and are copy-only
+- [x] CLI `recommend`, `clean --dry-run`, and audited `clean --apply --confirm`
+- [x] Cleanup tests cover protected paths, changed files, symlink
+      substitution, audit failures, partial failures, and fake-backend cancel
+
+Exact duplicates complete:
+
+- [x] Core size → bounded prefix hash → full BLAKE3 pipeline with progress,
+      cancellation, bounded candidate collection, and issue reporting
+- [x] Symlinks excluded; hardlink aliases skipped and counted; empty files
+      ignored; files changed during hashing rejected
+- [x] Duplicates workspace with minimum size, group cards, keeper selection,
+      per-group/total savings, select-rest/all-except-keepers, review basket,
+      and the shared audited trash pipeline
+- [x] CLI `duplicates` with JSON, progress, cancellation, min size, hidden-file
+      and filesystem options
+- [x] Duplicate tests cover exact groups, same-size different content, prefix
+      collisions, empty files, min size, hardlinks, symlinks, hidden files,
+      unreadable directories, changed files, cancellation, and keeper savings
+
+Verification on 2026-10-27: fmt, clippy with `-D warnings`, all workspace tests,
+and the Windows target check pass. Test totals: cleanup 26, CLI 11, core 14,
+scan integration 9, GUI 21, rules 4.
+
+Later phases are not started: applications/games, similar photos/videos,
+system recommendation polish, and packaging.
 
 ## Roadmap
 
-0. Foundation: scanner, tree model, CLI, tests, CI.
+0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
 1. GUI analyzer: volumes, treemap, top files/folders, filters, cache.
+   **Complete.**
 2. UI/UX redesign: design system, shell, navigation, i18n, persisted settings,
-   sortable virtualized tables, responsive inspector. Detailed milestones U0–U3
-   are in `docs/plan.md`.
+   sortable virtualized tables, responsive inspector. U0–U2 complete; U3
+   visual/snapshot/screenshot work remains.
 3. Safe cleanup: temp/caches/trash/old downloads, review basket, audit log.
+   **Complete.**
 4. Exact duplicates: size -> prefix hash -> full BLAKE3, hardlink handling.
+   **Complete.**
 5. Apps/games: Steam/Epic/GOG/Heroic/Lutris, Windows registry, Linux packages.
 6. Similar photos via `czkawka_core`.
 7. Similar videos via `czkawka_core` + system `ffmpeg`.

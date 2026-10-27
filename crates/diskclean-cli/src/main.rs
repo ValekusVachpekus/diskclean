@@ -8,10 +8,16 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
+use diskclean_cleanup::{
+    AuditLog, CleanupContext, CleanupItem, ProtectedPaths, SystemTrash, apply, default_audit_path,
+    discover_default,
+};
 use diskclean_core::{
-    FileSummary, ProgressSnapshot, ScanControl, ScanOptions, Tree, format_bytes, parse_size, scan,
+    DuplicateControl, DuplicateOptions, DuplicateProgress, FileSummary, ProgressSnapshot,
+    ScanControl, ScanOptions, Tree, find_duplicates, format_bytes, parse_size, scan,
 };
 use diskclean_platform::list_volumes;
+use diskclean_rules::{ActionKind, Risk};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
@@ -33,6 +39,12 @@ enum Command {
     Largest(LargestArgs),
     /// List mounted volumes.
     Volumes(VolumesArgs),
+    /// List safe cleanup recommendations. Read-only.
+    Recommend(RecommendArgs),
+    /// Dry-run or apply reviewed cleanup recommendations.
+    Clean(CleanArgs),
+    /// Find exact duplicate files. Read-only.
+    Duplicates(DuplicatesArgs),
 }
 
 #[derive(Debug, Args)]
@@ -105,6 +117,97 @@ struct VolumesArgs {
     json: bool,
 }
 
+#[derive(Debug, Args)]
+struct RecommendArgs {
+    /// Print machine-readable JSON to stdout.
+    #[arg(long)]
+    json: bool,
+
+    /// Include high-risk candidates in human-readable output (they are always
+    /// listed in JSON).
+    #[arg(long)]
+    include_high_risk: bool,
+}
+
+#[derive(Debug, Args)]
+struct CleanArgs {
+    /// Show what would be moved, but do not touch anything.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Move selected items to the operating-system trash.
+    #[arg(long)]
+    apply: bool,
+
+    /// Required with --apply. Confirms that the listed items may be trashed.
+    #[arg(long)]
+    confirm: bool,
+
+    /// Print machine-readable JSON to stdout.
+    #[arg(long)]
+    json: bool,
+
+    /// Include high-risk items (for example build artifact folders).
+    #[arg(long)]
+    include_high_risk: bool,
+
+    /// Only consider this rule id (repeatable).
+    #[arg(long = "rule", value_name = "ID")]
+    rules: Vec<String>,
+
+    /// Only consider this category (repeatable), for example app_cache.
+    #[arg(long = "category", value_name = "CATEGORY")]
+    categories: Vec<String>,
+
+    /// Only consider items at least this large (for example 100M).
+    #[arg(long)]
+    min_size: Option<String>,
+
+    /// Override the audit log path. The default lives under XDG state or
+    /// LocalAppData.
+    #[arg(long, value_name = "PATH")]
+    audit_log: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct DuplicatesArgs {
+    /// Directory or volume to search.
+    #[arg(default_value = ".")]
+    path: PathBuf,
+
+    /// Print machine-readable JSON to stdout.
+    #[arg(long)]
+    json: bool,
+
+    /// Ignore files smaller than this size (for example 100M or 1.5GiB).
+    #[arg(long, default_value = "1M")]
+    min_size: String,
+
+    /// Bytes hashed before a full-file BLAKE3 hash.
+    #[arg(long, default_value_t = 16 * 1024)]
+    prefix_bytes: usize,
+
+    /// Show at most this many duplicate groups in human-readable output.
+    #[arg(long, default_value_t = 100)]
+    top: usize,
+
+    /// Skip dotfiles and platform-hidden entries.
+    #[arg(long)]
+    skip_hidden: bool,
+
+    /// Cross filesystem/mount boundaries.
+    #[arg(long)]
+    cross_filesystems: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CleanDryRun {
+    items: Vec<CleanupItem>,
+    total_bytes: u64,
+    total_items: usize,
+    skipped_high_risk: usize,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -122,6 +225,9 @@ fn run() -> Result<()> {
         Command::Scan(args) => run_scan(args),
         Command::Largest(args) => run_largest(args),
         Command::Volumes(args) => run_volumes(args),
+        Command::Recommend(args) => run_recommend(args),
+        Command::Clean(args) => run_clean(args),
+        Command::Duplicates(args) => run_duplicates(args),
     }
 }
 
@@ -199,6 +305,316 @@ fn run_volumes(args: VolumesArgs) -> Result<()> {
     }
 }
 
+fn run_recommend(args: RecommendArgs) -> Result<()> {
+    let context = CleanupContext::from_environment();
+    let audit_path = default_audit_path();
+    let protected = protected_paths(&context, audit_path.as_deref());
+    let report = discover_default(&context, &protected).context("cannot load cleanup rules")?;
+
+    if args.json {
+        return write_json(&report);
+    }
+
+    println!(
+        "Cleanup recommendations: {} items, {} total",
+        report.item_count(),
+        format_bytes(report.total_bytes())
+    );
+    println!();
+
+    for recommendation in &report.recommendations {
+        let rule = &recommendation.rule;
+        let risk = rule.risk.as_str();
+        if rule.action == ActionKind::Trash {
+            if rule.risk == Risk::High && !args.include_high_risk {
+                println!(
+                    "[high, hidden] {} — {} item(s), {} (use --include-high-risk)",
+                    rule.title.en,
+                    recommendation.count(),
+                    format_bytes(recommendation.total_bytes())
+                );
+                continue;
+            }
+            println!(
+                "[{risk}] {} — {} item(s), {}",
+                rule.title.en,
+                recommendation.count(),
+                format_bytes(recommendation.total_bytes())
+            );
+            println!("  {}", rule.description.en);
+            for item in recommendation.items.iter().take(50) {
+                println!(
+                    "  {:>10}  {}",
+                    format_bytes(item.size()),
+                    item.path.display()
+                );
+            }
+            if recommendation.items.len() > 50 {
+                println!("  ... and {} more", recommendation.items.len() - 50);
+            }
+        } else {
+            println!("[{risk}] {} — recommendation only", rule.title.en);
+            println!("  {}", rule.description.en);
+            for command in &rule.commands {
+                println!("  $ {}", command.command);
+                if command.requires_admin {
+                    println!("    requires administrator rights");
+                }
+            }
+        }
+        println!();
+    }
+
+    if !report.issues.is_empty() {
+        println!("Skipped paths ({}):", report.issues.len());
+        for issue in report.issues.iter().take(20) {
+            println!("  {}: {}", issue.path.display(), issue.message);
+        }
+    }
+
+    Ok(())
+}
+
+fn run_clean(args: CleanArgs) -> Result<()> {
+    if args.dry_run == args.apply {
+        bail!("choose exactly one of --dry-run or --apply");
+    }
+    if args.apply && !args.confirm {
+        bail!("refusing to move files to trash without --confirm");
+    }
+
+    let min_size = match args.min_size.as_deref() {
+        Some(value) => parse_size(value).map_err(anyhow::Error::msg)?,
+        None => 0,
+    };
+    let context = CleanupContext::from_environment();
+    let audit_path = args
+        .audit_log
+        .clone()
+        .or_else(default_audit_path)
+        .ok_or_else(|| anyhow::anyhow!("cannot determine the audit log path"))?;
+    let protected = protected_paths(&context, Some(&audit_path));
+    let report = discover_default(&context, &protected).context("cannot load cleanup rules")?;
+
+    let mut skipped_high_risk = 0_usize;
+    let selected = select_items(
+        &report,
+        &args.rules,
+        &args.categories,
+        min_size,
+        args.include_high_risk,
+        &mut skipped_high_risk,
+    );
+
+    if args.dry_run {
+        let summary = CleanDryRun {
+            total_bytes: selected
+                .iter()
+                .fold(0_u64, |total, item| total.saturating_add(item.size())),
+            total_items: selected.len(),
+            skipped_high_risk,
+            items: selected,
+        };
+        if args.json {
+            return write_json(&summary);
+        }
+        if summary.items.is_empty() {
+            println!("Nothing selected for cleanup.");
+            return Ok(());
+        }
+        println!(
+            "Dry run: {} item(s), {} would move to trash",
+            summary.total_items,
+            format_bytes(summary.total_bytes)
+        );
+        for item in &summary.items {
+            println!(
+                "  {:>10}  [{:?}]  {}",
+                format_bytes(item.size()),
+                item.risk,
+                item.path.display()
+            );
+        }
+        if summary.skipped_high_risk > 0 {
+            println!(
+                "\n{} high-risk item(s) were skipped. Use --include-high-risk only after reviewing them.",
+                summary.skipped_high_risk
+            );
+        }
+        println!(
+            "\nNothing was changed. Re-run with --apply --confirm to move these items to trash."
+        );
+        return Ok(());
+    }
+
+    if selected.is_empty() {
+        println!("Nothing selected for cleanup.");
+        return Ok(());
+    }
+
+    let mut audit = AuditLog::open(&audit_path)
+        .with_context(|| format!("cannot open audit log {}", audit_path.display()))?;
+    let mut backend = SystemTrash;
+    let result = apply(&selected, &protected, &mut backend, &mut audit);
+
+    if args.json {
+        write_json(&result)?;
+    } else {
+        println!(
+            "Moved {} item(s), {}, to the trash.",
+            result.trashed_count,
+            format_bytes(result.bytes_trashed)
+        );
+        for item in &result.results {
+            if item.kind == diskclean_cleanup::ItemResultKind::Trashed {
+                println!("  trashed  {}", item.path.display());
+            } else {
+                println!(
+                    "  {:?}  {}  {}",
+                    item.kind,
+                    item.path.display(),
+                    item.error.as_deref().unwrap_or("")
+                );
+            }
+        }
+        println!("Audit log: {}", audit_path.display());
+        if let Some(reason) = &result.aborted_reason {
+            println!("Stopped: {reason}");
+        }
+    }
+
+    if result.aborted_reason.is_some() || result.failed_count() > 0 {
+        bail!(
+            "cleanup finished with {} failure(s); see {}",
+            result.failed_count(),
+            audit_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_duplicates(args: DuplicatesArgs) -> Result<()> {
+    let min_size = parse_size(&args.min_size).map_err(anyhow::Error::msg)?;
+    let options = DuplicateOptions {
+        min_size,
+        prefix_bytes: args.prefix_bytes,
+        skip_hidden: args.skip_hidden,
+        cross_filesystems: args.cross_filesystems,
+        ..DuplicateOptions::default()
+    };
+
+    let control = DuplicateControl::new();
+    install_duplicate_cancel_handler(control.clone());
+    let progress = HashProgressReporter::start(control.clone());
+    let result = find_duplicates(&args.path, &options, &control);
+    progress.stop();
+    let report = result.context("duplicate search failed")?;
+
+    if args.json {
+        return write_json(&report);
+    }
+
+    println!(
+        "Exact duplicates: {} groups, {} files, {} potentially reclaimable",
+        report.group_count(),
+        report.duplicate_file_count(),
+        format_bytes(report.total_reclaimable())
+    );
+    println!("Root: {}", report.root_path.display());
+    if report.hardlink_duplicates > 0 {
+        println!(
+            "Hardlinks: {} alias path(s) skipped (removing them would not free space)",
+            report.hardlink_duplicates
+        );
+    }
+    println!();
+
+    for (index, group) in report.groups.iter().take(args.top).enumerate() {
+        println!(
+            "{:>4}. {} × {} — up to {} reclaimable",
+            index + 1,
+            group.copies(),
+            format_bytes(group.logical_size),
+            format_bytes(group.reclaimable_bytes)
+        );
+        for file in &group.files {
+            println!(
+                "      {:>10}  {}",
+                format_bytes(file.size()),
+                file.path.display()
+            );
+        }
+        println!();
+    }
+    if report.groups.len() > args.top {
+        println!("... and {} more groups", report.groups.len() - args.top);
+    }
+
+    if !report.issues.is_empty() {
+        println!("Skipped paths ({}):", report.issues.len());
+        for issue in report.issues.iter().take(20) {
+            println!("  {}: {}", issue.path.display(), issue.message);
+        }
+        if report.issues.len() > 20 {
+            println!("  ... and {} more", report.issues.len() - 20);
+        }
+    }
+
+    Ok(())
+}
+
+fn select_items(
+    report: &diskclean_cleanup::CleanupReport,
+    rules: &[String],
+    categories: &[String],
+    min_size: u64,
+    include_high_risk: bool,
+    skipped_high_risk: &mut usize,
+) -> Vec<CleanupItem> {
+    let mut selected = Vec::new();
+    for recommendation in &report.recommendations {
+        let rule = &recommendation.rule;
+        if rule.action != ActionKind::Trash {
+            continue;
+        }
+        if !rules.is_empty() && !rules.iter().any(|id| id == &rule.id) {
+            continue;
+        }
+        if !categories.is_empty()
+            && !categories
+                .iter()
+                .any(|category| category == rule.category.as_str())
+        {
+            continue;
+        }
+
+        for item in &recommendation.items {
+            if item.size() < min_size {
+                continue;
+            }
+            if item.risk == Risk::High && !include_high_risk {
+                *skipped_high_risk += 1;
+                continue;
+            }
+            if item.risk == Risk::SystemOnly {
+                continue;
+            }
+            selected.push(item.clone());
+        }
+    }
+    selected
+}
+
+fn protected_paths(
+    context: &CleanupContext,
+    audit_path: Option<&std::path::Path>,
+) -> ProtectedPaths {
+    let audit_root = audit_path
+        .and_then(std::path::Path::parent)
+        .map(std::path::Path::to_path_buf);
+    ProtectedPaths::for_context(context, audit_root)
+}
+
 fn scan_options(base: &ScanBase, top: usize) -> ScanOptions {
     ScanOptions {
         cross_filesystems: base.cross_filesystems,
@@ -227,6 +643,15 @@ fn configure_threads(threads: Option<usize>) -> Result<()> {
 fn install_cancel_handler(control: ScanControl) {
     if let Err(error) = ctrlc::set_handler(move || {
         eprintln!("\ninterrupt: cancelling scan...");
+        control.cancel();
+    }) {
+        eprintln!("warning: cannot install Ctrl-C handler: {error}");
+    }
+}
+
+fn install_duplicate_cancel_handler(control: DuplicateControl) {
+    if let Err(error) = ctrlc::set_handler(move || {
+        eprintln!("\ninterrupt: cancelling duplicate search...");
         control.cancel();
     }) {
         eprintln!("warning: cannot install Ctrl-C handler: {error}");
@@ -358,6 +783,59 @@ impl ProgressReporter {
             eprintln!();
         }
     }
+}
+
+struct HashProgressReporter {
+    stop: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl HashProgressReporter {
+    fn start(control: DuplicateControl) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        if !io::stderr().is_terminal() {
+            return Self { stop, handle: None };
+        }
+
+        let thread_stop = Arc::clone(&stop);
+        let handle = thread::spawn(move || {
+            while !thread_stop.load(Ordering::Relaxed) {
+                let snapshot = control.snapshot();
+                eprint!("\r\x1b[2K{}", hash_progress_line(&snapshot));
+                let _ = io::stderr().flush();
+                thread::sleep(Duration::from_millis(200));
+            }
+        });
+
+        Self {
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    fn stop(mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+            eprintln!();
+        }
+    }
+}
+
+fn hash_progress_line(snapshot: &DuplicateProgress) -> String {
+    let current = snapshot
+        .current_path
+        .as_ref()
+        .map_or_else(String::new, |path| shorten(&path.display().to_string(), 80));
+    format!(
+        "duplicates: {:?}, {} scanned, {} hashed, {} read, {} groups | {}",
+        snapshot.phase,
+        snapshot.files_scanned,
+        snapshot.files_hashed,
+        format_bytes(snapshot.bytes_hashed),
+        snapshot.groups_found,
+        current
+    )
 }
 
 fn progress_line(snapshot: &ProgressSnapshot) -> String {

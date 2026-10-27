@@ -1,0 +1,702 @@
+//! Headless GUI regression tests using `egui_kittest`.
+//!
+//! These tests render the real application shell into an off-screen egui
+//! context. They never open a window or touch the user's desktop. Filesystem
+//! access is limited to disposable temporary directories created by a test.
+
+use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use diskclean_cleanup::{CleanupItem, CleanupReport, Recommendation};
+use diskclean_core::{
+    DuplicateControl, DuplicateOptions, DuplicateReport, ExtensionTotals, Node, NodeId, NodeKind,
+    ROOT_ID, ScanStats, Tree, find_duplicates,
+};
+use diskclean_rules::{ActionKind, Category, LocalizedText, Risk, Rule, SystemCommand};
+use eframe::egui::{self, Key, Modifiers, Vec2};
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
+
+use crate::app::{DiskCleanupApp, Tab, Workspace};
+use crate::i18n::Language;
+use crate::settings::Settings;
+use crate::ui::theme::{self, ThemeMode};
+use crate::views::cleanup::RiskFilter;
+
+const GIB: u64 = 1024 * 1024 * 1024;
+
+fn node(
+    parent: Option<NodeId>,
+    first_child: Option<NodeId>,
+    next_sibling: Option<NodeId>,
+    name: &str,
+    kind: NodeKind,
+    size: u64,
+    depth: u16,
+) -> Node {
+    let file_count = u64::from(kind == NodeKind::File);
+    let dir_count = u64::from(kind == NodeKind::Directory);
+    Node {
+        parent,
+        first_child,
+        next_sibling,
+        name: OsString::from(name),
+        kind,
+        logical_size: size,
+        allocated_size: size,
+        actual_logical_size: size,
+        actual_allocated_size: size,
+        file_count,
+        dir_count,
+        modified_unix: 1_700_000_000,
+        dev: 1,
+        ino: u64::from(depth) + 1,
+        nlink: 1,
+        is_hidden: false,
+        is_hardlink_duplicate: false,
+        depth,
+    }
+}
+
+/// A small deterministic tree:
+///
+/// ```text
+/// /virtual/fixture         10 GiB
+/// ├── media                 6 GiB
+/// │   ├── movie.mkv         4 GiB
+/// │   └── photo.jpg         2 GiB
+/// ├── cache                 3 GiB
+/// │   └── blob.bin          3 GiB
+/// └── notes.txt             1 GiB
+/// ```
+fn fixture_tree() -> Tree {
+    let media = 1;
+    let movie = 2;
+    let photo = 3;
+    let cache = 4;
+    let blob = 5;
+    let notes = 6;
+
+    let mut extensions = BTreeMap::new();
+    for (extension, size) in [
+        ("mkv", 4 * GIB),
+        ("jpg", 2 * GIB),
+        ("bin", 3 * GIB),
+        ("txt", GIB),
+    ] {
+        extensions.insert(
+            extension.to_owned(),
+            ExtensionTotals {
+                files: 1,
+                logical_bytes: size,
+                allocated_bytes: size,
+            },
+        );
+    }
+
+    let mut tree = Tree {
+        root_path: PathBuf::from("/virtual/fixture"),
+        nodes: vec![
+            node(
+                None,
+                Some(media),
+                None,
+                "fixture",
+                NodeKind::Directory,
+                10 * GIB,
+                0,
+            ),
+            node(
+                Some(ROOT_ID),
+                Some(movie),
+                Some(cache),
+                "media",
+                NodeKind::Directory,
+                6 * GIB,
+                1,
+            ),
+            node(
+                Some(media),
+                None,
+                Some(photo),
+                "movie.mkv",
+                NodeKind::File,
+                4 * GIB,
+                2,
+            ),
+            node(
+                Some(media),
+                None,
+                None,
+                "photo.jpg",
+                NodeKind::File,
+                2 * GIB,
+                2,
+            ),
+            node(
+                Some(ROOT_ID),
+                Some(blob),
+                Some(notes),
+                "cache",
+                NodeKind::Directory,
+                3 * GIB,
+                1,
+            ),
+            node(
+                Some(cache),
+                None,
+                None,
+                "blob.bin",
+                NodeKind::File,
+                3 * GIB,
+                2,
+            ),
+            node(
+                Some(ROOT_ID),
+                None,
+                None,
+                "notes.txt",
+                NodeKind::File,
+                GIB,
+                1,
+            ),
+        ],
+        top_files: vec![movie, blob, photo, notes],
+        extensions,
+        issues: Vec::new(),
+        stats: ScanStats {
+            directories: 3,
+            files: 4,
+            logical_bytes: 10 * GIB,
+            allocated_bytes: 10 * GIB,
+            ..ScanStats::default()
+        },
+        started_at_unix_ms: 1_700_000_000_000,
+        duration_ms: 24,
+    };
+    tree.nodes[ROOT_ID as usize].file_count = 4;
+    tree.nodes[ROOT_ID as usize].dir_count = 3;
+    tree.nodes[1].file_count = 2;
+    tree.nodes[1].dir_count = 1;
+    tree.nodes[4].file_count = 1;
+    tree.nodes[4].dir_count = 1;
+    tree
+}
+
+fn english_settings() -> Settings {
+    Settings {
+        language: Language::English,
+        ..Settings::default()
+    }
+}
+
+fn test_app(settings: Settings, with_tree: bool) -> DiskCleanupApp {
+    let tree = with_tree.then(|| Arc::new(fixture_tree()));
+    DiskCleanupApp::new_for_test(settings, tree)
+}
+
+fn harness(app: DiskCleanupApp, size: Vec2) -> Harness<'static, DiskCleanupApp> {
+    harness_at_scale(app, size, 1.0)
+}
+
+fn harness_at_scale(
+    app: DiskCleanupApp,
+    size: Vec2,
+    pixels_per_point: f32,
+) -> Harness<'static, DiskCleanupApp> {
+    Harness::builder()
+        .with_size(size)
+        .with_pixels_per_point(pixels_per_point)
+        .with_accessibility_check(false)
+        .with_context_setup(|ctx| {
+            theme::install_fonts(ctx);
+            theme::apply(ctx, ThemeMode::Dark);
+        })
+        .build_ui_state(|ui, app| app.show(ui), app)
+}
+
+#[test]
+fn empty_overview_renders_without_a_scan() {
+    let app = test_app(english_settings(), false);
+    let harness = harness(app, Vec2::new(1280.0, 820.0));
+
+    assert!(harness.query_by_label("Scan home folder").is_some());
+    assert!(
+        harness
+            .query_by_label_contains("See what is using your disk")
+            .is_some()
+    );
+    assert!(harness.query_by_label_contains("Disk Cleanup").is_some());
+}
+
+#[test]
+fn analyze_shell_exposes_tabs_and_selection() {
+    let mut app = test_app(english_settings(), true);
+    app.tab = Tab::Folders;
+    let harness = harness(app, Vec2::new(1280.0, 820.0));
+
+    assert!(
+        harness
+            .query_all_by_label_contains("Folders")
+            .next()
+            .is_some()
+    );
+    assert!(harness.query_by_label_contains("Selection").is_some());
+    assert!(
+        harness
+            .query_all_by_label_contains("media")
+            .next()
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_all_by_label_contains("cache")
+            .next()
+            .is_some()
+    );
+}
+
+#[test]
+fn shell_stays_usable_at_minimum_window_size() {
+    let app = test_app(Settings::default(), true);
+    let _harness = harness(app, Vec2::new(900.0, 600.0));
+}
+
+#[test]
+fn shell_reflows_at_high_dpi_in_both_themes_and_languages() {
+    for (theme, pixels_per_point, language, scan, folders) in [
+        (ThemeMode::Dark, 1.25, Language::English, "Scan", "Folders"),
+        (
+            ThemeMode::Light,
+            2.0,
+            Language::Russian,
+            "Сканировать",
+            "Папки",
+        ),
+    ] {
+        let mut settings = english_settings();
+        settings.theme = theme;
+        settings.language = language;
+        let app = test_app(settings, true);
+        let harness = harness_at_scale(app, Vec2::new(900.0, 600.0), pixels_per_point);
+
+        assert_eq!(harness.ctx.pixels_per_point(), pixels_per_point);
+        assert_eq!(harness.state().palette.is_dark(), theme == ThemeMode::Dark);
+        assert!(harness.query_by_label(scan).is_some());
+        assert!(
+            harness
+                .query_all_by_label_contains(folders)
+                .next()
+                .is_some()
+        );
+    }
+}
+
+#[test]
+fn language_switch_updates_shell_at_runtime() {
+    let mut app = test_app(Settings::default(), false);
+    app.settings.language = Language::English;
+    let mut harness = harness(app, Vec2::new(1280.0, 820.0));
+
+    assert!(harness.query_by_label("Scan").is_some());
+
+    harness.state_mut().settings.language = Language::Russian;
+    harness.run();
+
+    assert!(harness.query_by_label("Сканировать").is_some());
+    assert!(
+        harness
+            .query_by_label_contains("Посмотрите, что занимает диск")
+            .is_some()
+    );
+}
+
+#[test]
+fn theme_switch_rebuilds_the_palette_at_runtime() {
+    let mut app = test_app(Settings::default(), false);
+    app.settings.theme = ThemeMode::Dark;
+    let mut harness = harness(app, Vec2::new(1280.0, 820.0));
+
+    assert!(harness.state().palette.is_dark());
+    assert_eq!(harness.ctx.theme(), egui::Theme::Dark);
+
+    harness.state_mut().settings.theme = ThemeMode::Light;
+    harness.run();
+
+    assert!(!harness.state().palette.is_dark());
+    assert_eq!(harness.ctx.theme(), egui::Theme::Light);
+}
+
+#[test]
+fn search_and_size_filters_apply_to_visible_children() {
+    let mut app = test_app(Settings::default(), true);
+    let tree = Arc::clone(app.tree.as_ref().expect("fixture tree"));
+
+    assert_eq!(app.visible_children(&tree, ROOT_ID).len(), 3);
+
+    app.filters.search = "mov".to_owned();
+    assert_eq!(
+        app.visible_children(&tree, ROOT_ID),
+        Vec::<NodeId>::new(),
+        "children of the root do not include nested matches"
+    );
+    let media = tree
+        .nodes
+        .iter()
+        .position(|node| node.display_name() == "media")
+        .expect("media node") as NodeId;
+    assert_eq!(app.visible_children(&tree, media), vec![2]);
+
+    app.filters.search.clear();
+    app.filters.min_size = "4 GiB".to_owned();
+    assert_eq!(app.visible_children(&tree, ROOT_ID), vec![1]);
+    assert!(app.filters_active() >= 1);
+
+    app.clear_filters();
+    assert_eq!(app.visible_children(&tree, ROOT_ID).len(), 3);
+}
+
+#[test]
+fn settings_round_trip_keeps_ui_state() {
+    let mut settings = Settings {
+        theme: ThemeMode::Light,
+        language: Language::Russian,
+        skip_hidden: true,
+        cross_filesystems: true,
+        inspector_open: false,
+        last_path: "/virtual/fixture".to_owned(),
+        recent_roots: vec!["/virtual/fixture".to_owned()],
+        sidebar_width: 254.0,
+        inspector_width: 320.0,
+    };
+
+    let mut storage = TestStorage::default();
+    settings.save(&mut storage);
+    let loaded = Settings::load(Some(&storage));
+
+    assert_eq!(loaded.theme, ThemeMode::Light);
+    assert_eq!(loaded.language, Language::Russian);
+    assert!(loaded.skip_hidden);
+    assert!(loaded.cross_filesystems);
+    assert!(!loaded.inspector_open);
+    assert_eq!(loaded.last_path, "/virtual/fixture");
+    assert_eq!(loaded.recent_roots, vec!["/virtual/fixture"]);
+    assert_eq!(loaded.sidebar_width, 254.0);
+    assert_eq!(loaded.inspector_width, 320.0);
+
+    settings.reset_preferences();
+    assert_eq!(settings.theme, ThemeMode::System);
+    assert_eq!(settings.language, Language::System);
+    assert_eq!(settings.last_path, "/virtual/fixture");
+    assert_eq!(settings.recent_roots, vec!["/virtual/fixture"]);
+}
+
+fn cleanup_fixture() -> (tempfile::TempDir, CleanupReport, CleanupItem, CleanupItem) {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let safe_path = temp.path().join("cache.bin");
+    let risky_path = temp.path().join("important.bin");
+    fs::write(&safe_path, vec![b'a'; 1024]).expect("safe fixture");
+    fs::write(&risky_path, vec![b'b'; 2048]).expect("high-risk fixture");
+
+    let safe = CleanupItem::new(&safe_path, "test-cache", Category::Temporary, Risk::Low)
+        .expect("safe snapshot");
+    let high = CleanupItem::new(
+        &risky_path,
+        "test-important",
+        Category::LargeOldFiles,
+        Risk::High,
+    )
+    .expect("high-risk snapshot");
+
+    let safe_rule = Rule {
+        id: "test-cache".to_owned(),
+        category: Category::Temporary,
+        risk: Risk::Low,
+        title: LocalizedText::english("Test cache"),
+        description: LocalizedText::english("A safe test cache location."),
+        action: ActionKind::Trash,
+        locations: Vec::new(),
+        commands: Vec::new(),
+    };
+    let high_rule = Rule {
+        id: "test-important".to_owned(),
+        category: Category::LargeOldFiles,
+        risk: Risk::High,
+        title: LocalizedText::english("Large old files"),
+        description: LocalizedText::english("Review these files carefully."),
+        action: ActionKind::Trash,
+        locations: Vec::new(),
+        commands: Vec::new(),
+    };
+    let command_rule = Rule {
+        id: "test-command".to_owned(),
+        category: Category::System,
+        risk: Risk::SystemOnly,
+        title: LocalizedText::english("System command"),
+        description: LocalizedText::english("Recommendation only."),
+        action: ActionKind::SystemCommand,
+        locations: Vec::new(),
+        commands: vec![SystemCommand {
+            label: LocalizedText::english("Clean system cache"),
+            command: "sudo systemctl clean".to_owned(),
+            requires_admin: true,
+            note: None,
+        }],
+    };
+
+    let report = CleanupReport {
+        generated_at_unix_ms: 1_700_000_000_000,
+        recommendations: vec![
+            Recommendation {
+                rule: safe_rule,
+                items: vec![safe.clone()],
+            },
+            Recommendation {
+                rule: high_rule,
+                items: vec![high.clone()],
+            },
+            Recommendation {
+                rule: command_rule,
+                items: Vec::new(),
+            },
+        ],
+        issues: Vec::new(),
+    };
+
+    (temp, report, safe, high)
+}
+
+#[test]
+fn cleanup_workspace_renders_and_never_preselects() {
+    let (_temp, report, safe, high) = cleanup_fixture();
+    let mut app = test_app(english_settings(), false);
+    app.workspace = Workspace::Cleanup;
+    app.cleanup.report = Some(report.clone());
+
+    assert!(app.cleanup.selected.is_empty());
+    app.cleanup.select_safe(&report);
+    assert_eq!(app.cleanup.selected.len(), 1);
+    assert!(app.cleanup.selected.contains_key(&safe.path));
+    assert!(!app.cleanup.selected.contains_key(&high.path));
+    assert!(!app.cleanup.selected_high_risk());
+
+    app.cleanup.selected.insert(high.path.clone(), high);
+    assert!(app.cleanup.selected_high_risk());
+    assert!(
+        !app.cleanup.can_apply(),
+        "high-risk items require explicit acknowledgement"
+    );
+    app.cleanup.acknowledge_high_risk = true;
+    assert!(app.cleanup.can_apply());
+
+    app.cleanup.clear_selection();
+    app.cleanup.select_safe(&report);
+    let harness = harness(app, Vec2::new(1280.0, 820.0));
+
+    assert!(harness.query_by_label("Test cache").is_some());
+    assert!(
+        harness
+            .query_all_by_label_contains("Review basket")
+            .next()
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_all_by_label_contains("System command")
+            .next()
+            .is_some()
+    );
+}
+
+#[test]
+fn cleanup_commands_filter_does_not_claim_there_are_no_recommendations() {
+    let (_temp, mut report, _, _) = cleanup_fixture();
+    report
+        .recommendations
+        .retain(|recommendation| recommendation.rule.action == ActionKind::SystemCommand);
+
+    let mut app = test_app(english_settings(), false);
+    app.workspace = Workspace::Cleanup;
+    app.cleanup.report = Some(report);
+    app.cleanup.risk_filter = RiskFilter::Commands;
+    let harness = harness(app, Vec2::new(1280.0, 820.0));
+
+    assert!(
+        harness
+            .query_all_by_label_contains("System command")
+            .next()
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_all_by_label_contains("No cleanup candidates")
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
+fn workspace_shortcuts_switch_between_analyze_cleanup_and_duplicates() {
+    let mut harness = harness(
+        test_app(english_settings(), false),
+        Vec2::new(1280.0, 820.0),
+    );
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Num2);
+    harness.run();
+    assert_eq!(harness.state().workspace, Workspace::Cleanup);
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Num3);
+    harness.run();
+    assert_eq!(harness.state().workspace, Workspace::Duplicates);
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Num1);
+    harness.run();
+    assert_eq!(harness.state().workspace, Workspace::Analyze);
+}
+
+#[test]
+fn loading_a_different_root_invalidates_duplicate_results() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("copy.bin");
+    fs::write(&path, b"duplicate fixture").expect("fixture file");
+    let item = CleanupItem::new(
+        &path,
+        "exact-duplicates",
+        Category::Duplicates,
+        Risk::Medium,
+    )
+    .expect("item snapshot");
+    let empty_report = DuplicateReport {
+        root_path: PathBuf::from("/virtual/fixture"),
+        generated_at_unix_ms: 0,
+        groups: Vec::new(),
+        issues: Vec::new(),
+        files_scanned: 0,
+        hardlink_duplicates: 0,
+        bytes_hashed: 0,
+        duration_ms: 0,
+    };
+
+    let mut app = test_app(english_settings(), true);
+    app.duplicates.report = Some(empty_report.clone());
+    app.duplicates.selected.insert(path.clone(), item);
+    app.duplicates
+        .keepers
+        .insert("fingerprint".to_owned(), path.clone());
+
+    app.load_cached(PathBuf::from("/virtual/fixture"), Arc::new(fixture_tree()));
+    assert!(
+        app.duplicates.report.is_some(),
+        "reopening the same cached root keeps valid duplicate results"
+    );
+
+    app.load_cached(PathBuf::from("/virtual/other"), Arc::new(fixture_tree()));
+    assert!(app.duplicates.report.is_none());
+    assert!(app.duplicates.selected.is_empty());
+    assert!(app.duplicates.keepers.is_empty());
+}
+
+#[test]
+fn duplicate_workspace_selects_rest_without_the_keeper() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for name in ["a.bin", "b.bin", "c.bin"] {
+        fs::write(temp.path().join(name), vec![b'x'; 4096]).expect("duplicate fixture");
+    }
+    let control = DuplicateControl::new();
+    let report = find_duplicates(
+        temp.path(),
+        &DuplicateOptions {
+            min_size: 0,
+            ..DuplicateOptions::default()
+        },
+        &control,
+    )
+    .expect("duplicate report");
+    assert_eq!(report.group_count(), 1);
+    let group = report.groups[0].clone();
+    let keeper = group.files[0].path.clone();
+
+    let mut app = test_app(english_settings(), false);
+    app.workspace = Workspace::Duplicates;
+    app.duplicates.report = Some(report);
+    app.duplicates
+        .keepers
+        .insert(group.fingerprint.clone(), keeper.clone());
+    app.duplicates.select_rest(&group).expect("select rest");
+
+    assert_eq!(app.duplicates.selected.len(), 2);
+    assert!(!app.duplicates.selected.contains_key(&keeper));
+    assert!(app.duplicates.can_apply());
+
+    let harness = harness(app, Vec2::new(1280.0, 820.0));
+    assert!(
+        harness
+            .query_all_by_label_contains("a.bin")
+            .next()
+            .is_some()
+    );
+    assert!(
+        harness
+            .query_all_by_label_contains("Review basket")
+            .next()
+            .is_some()
+    );
+}
+
+#[test]
+fn duplicate_workspace_explains_that_a_scan_is_required() {
+    let mut app = test_app(english_settings(), false);
+    app.workspace = Workspace::Duplicates;
+    let harness = harness(app, Vec2::new(1280.0, 820.0));
+    assert!(
+        harness
+            .query_by_label_contains("Scan a folder first")
+            .is_some()
+    );
+}
+
+#[derive(Default)]
+struct TestStorage {
+    values: HashMap<String, String>,
+}
+
+impl eframe::Storage for TestStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.values.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        self.values.insert(key.to_owned(), value);
+    }
+
+    fn remove_string(&mut self, key: &str) {
+        self.values.remove(key);
+    }
+
+    fn flush(&mut self) {}
+}
+
+#[test]
+fn fixture_tree_is_consistent() {
+    let tree = fixture_tree();
+    let media = tree
+        .nodes
+        .iter()
+        .position(|node| node.display_name() == "media")
+        .expect("media node") as NodeId;
+
+    assert_eq!(
+        tree.path(2),
+        PathBuf::from("/virtual/fixture/media/movie.mkv")
+    );
+    assert_eq!(tree.children(ROOT_ID).count(), 3);
+    assert_eq!(tree.node(media).allocated_size, 6 * GIB);
+    assert_eq!(tree.node(ROOT_ID).file_count, 4);
+    assert_eq!(tree.node(ROOT_ID).dir_count, 3);
+    assert!(SystemTime::now().duration_since(UNIX_EPOCH).is_ok());
+}

@@ -10,7 +10,22 @@ fn diskclean() -> Command {
     Command::cargo_bin("diskclean").expect("binary exists")
 }
 
+fn isolated_home(temp: &std::path::Path) -> Command {
+    let mut command = diskclean();
+    command
+        .env("HOME", temp)
+        .env("XDG_CACHE_HOME", temp.join(".cache"))
+        .env("XDG_DATA_HOME", temp.join(".local/share"))
+        .env("XDG_CONFIG_HOME", temp.join(".config"))
+        .env("XDG_STATE_HOME", temp.join(".local/state"))
+        .env("TMPDIR", temp.join("tmp"));
+    command
+}
+
 fn write_file(path: &std::path::Path, size: usize) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create parent");
+    }
     let mut file = fs::File::create(path).expect("create file");
     file.write_all(&vec![b'x'; size]).expect("write file");
 }
@@ -100,4 +115,118 @@ fn invalid_size_is_rejected() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("unknown size suffix"));
+}
+
+#[test]
+fn recommend_json_lists_rules_and_candidates() {
+    let temp = tempdir().expect("temp dir");
+    write_file(&temp.path().join("project/target/app"), 1024);
+    let output = isolated_home(temp.path())
+        .args(["recommend", "--json"])
+        .output()
+        .expect("run recommend");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
+    let recommendations = report["recommendations"].as_array().expect("array");
+    let dev = recommendations
+        .iter()
+        .find(|recommendation| recommendation["rule"]["id"] == "dev-artifacts")
+        .expect("dev rule");
+    assert!(dev["items"].as_array().expect("items").iter().any(|item| {
+        item["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("project/target"))
+    }));
+}
+
+#[test]
+fn recommend_never_mutates_files() {
+    let temp = tempdir().expect("temp dir");
+    let candidate = temp.path().join("project/target/app");
+    write_file(&candidate, 1024);
+    isolated_home(temp.path())
+        .args(["recommend"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("recommendation only"));
+    assert!(candidate.exists());
+}
+
+#[test]
+fn clean_refuses_apply_without_confirmation() {
+    isolated_home(std::path::Path::new("/"))
+        .args(["clean", "--apply"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--confirm"));
+}
+
+#[test]
+fn clean_dry_run_never_touches_the_candidate() {
+    let temp = tempdir().expect("temp dir");
+    let candidate = temp.path().join("project/target/app");
+    write_file(&candidate, 1024);
+    isolated_home(temp.path())
+        .args([
+            "clean",
+            "--dry-run",
+            "--rule",
+            "dev-artifacts",
+            "--include-high-risk",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Nothing was changed"));
+    assert!(candidate.exists());
+}
+
+#[test]
+fn duplicates_json_finds_groups_without_mutating_files() {
+    let temp = tempdir().expect("temp dir");
+    let first = temp.path().join("first.bin");
+    let second = temp.path().join("nested/second.bin");
+    write_file(&first, 4096);
+    write_file(&second, 4096);
+
+    let output = diskclean()
+        .args([
+            "duplicates",
+            temp.path().to_str().expect("utf-8 temp path"),
+            "--json",
+            "--min-size",
+            "0",
+        ])
+        .output()
+        .expect("run duplicates");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
+    assert_eq!(report["groups"].as_array().expect("groups").len(), 1);
+    assert_eq!(
+        report["groups"][0]["files"]
+            .as_array()
+            .expect("files")
+            .len(),
+        2
+    );
+    assert!(first.exists());
+    assert!(second.exists());
+}
+
+#[test]
+fn clean_requires_a_mode() {
+    isolated_home(std::path::Path::new("/"))
+        .args(["clean"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--dry-run"));
 }

@@ -1,0 +1,50 @@
+schema_version = 1
+id = "common"
+
+[[rules]]
+id = "old-downloads"
+category = "old_downloads"
+risk = "medium"
+action = "trash"
+title = { en = "Old downloads", ru = "Старые загрузки" }
+description = { en = "Files in your Downloads folder that have not changed for 30 days. Review each file before moving it to the trash.", ru = "Файлы в папке загрузок, которые не менялись 30 дней. Проверьте каждый файл перед перемещением в корзину." }
+
+[[rules.locations]]
+base = "downloads"
+path = ""
+mode = "children"
+kind = "files"
+min_age_days = 30
+max_entries = 300
+
+[[rules]]
+id = "thumbnail-cache"
+category = "app_cache"
+risk = "low"
+action = "trash"
+title = { en = "Thumbnail cache", ru = "Кэш миниатюр" }
+description = { en = "Cached file thumbnails. The desktop will recreate them when needed.", ru = "Кэш миниатюр файлов. Система создаст их заново при необходимости." }
+
+[[rules.locations]]
+base = "cache"
+path = "thumbnails"
+mode = "path"
+kind = "directories"
+max_entries = 10
+
+[[rules]]
+id = "dev-artifacts"
+category = "dev_artifacts"
+risk = "high"
+action = "trash"
+title = { en = "Build artifacts", ru = "Артефакты сборки" }
+description = { en = "Build output folders such as target, node_modules, and .gradle. They can be large and are recreated by builds, but some may contain local caches or uncommitted generated files. Nothing is selected by default.", ru = "Папки результатов сборки: target, node_modules, .gradle и подобные. Они могут быть большими и создаются заново при сборке, но иногда содержат локальные кэши или несохранённые сгенерированные файлы. По умолчанию ничего не выбрано." }
+
+[[rules.locations]]
+base = "home"
+path = ""
+mode = "recursive_named"
+names = ["target", "node_modules", ".gradle", "cmake-build-debug", "cmake-build-release"]
+kind = "directories"
+max_depth = 7
+max_entries = 200

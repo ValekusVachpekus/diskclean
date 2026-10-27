@@ -6,6 +6,7 @@
 //! scans and exposes a compact in-memory tree plus summaries suitable for a
 //! treemap, tables, and JSON output.
 
+pub mod duplicates;
 pub mod error;
 pub mod format;
 pub mod progress;
@@ -13,6 +14,10 @@ pub mod report;
 pub mod scan;
 pub mod tree;
 
+pub use duplicates::{
+    DuplicateControl, DuplicateError, DuplicateFile, DuplicateGroup, DuplicateIssue,
+    DuplicateOptions, DuplicatePhase, DuplicateProgress, DuplicateReport, find_duplicates,
+};
 pub use error::{IssueKind, ScanError, ScanIssue};
 pub use format::{format_bytes, parse_size};
 pub use progress::{ProgressSnapshot, ScanControl};

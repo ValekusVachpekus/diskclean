@@ -217,7 +217,14 @@ impl DiskCleanupApp {
                     self.text(Key::ShortcutRescan),
                 );
                 components::shortcut_row(ui, palette, "Ctrl+F", self.text(Key::ShortcutSearch));
+                components::shortcut_row(ui, palette, "Enter", self.text(Key::ShortcutOpenItem));
                 components::shortcut_row(ui, palette, "Backspace", self.text(Key::ShortcutBack));
+                components::shortcut_row(
+                    ui,
+                    palette,
+                    "Ctrl+1 / 2 / 3",
+                    self.text(Key::ShortcutWorkspaces),
+                );
                 components::shortcut_row(ui, palette, "Ctrl+,", self.text(Key::ShortcutSettings));
                 components::shortcut_row(ui, palette, "Esc", self.text(Key::ShortcutClose));
                 ui.add_space(8.0);

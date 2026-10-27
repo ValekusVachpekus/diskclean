@@ -4,7 +4,19 @@ Status: **active**. This file is the durable working plan. Update the status
 table and the relevant milestone notes whenever work lands. `AGENTS.md` links
 here so a fresh agent can recover context after a reset.
 
-Last updated: 2026-10-23.
+Last updated: 2026-10-27.
+
+## Status snapshot
+
+| Area | Status | Notes |
+|---|---|---|
+| U0 design foundation | Complete | tokens, themes, fonts/icons, i18n, settings persistence, headless harness |
+| U1 shell and navigation | Complete | command bar, navigation, inspector, status bar, recents/cache, progress/error states |
+| U2 Analyze workspace | Complete | tabs, sortable virtualized tables, treemap, filters, inspector, keyboard shortcuts |
+| U3 polish and quality | In progress | automated contrast, high-DPI, interaction, and Windows target checks pass; manual visual smoke, performance pass, snapshots, and screenshots remain |
+| Phase 2 safe cleanup | Complete | rules, discovery, protected paths, revalidation, trash-only apply, audit log, GUI and CLI |
+| Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
+| Phase 4+ | Not started | applications/games, similar media, packaging |
 
 ## Product decisions locked for this plan
 
@@ -22,7 +34,7 @@ Last updated: 2026-10-23.
   recommendation-only and displays commands; it never executes them.
 - No network access, telemetry, elevation, or permanent-delete fallback.
 
-## Current UI problems (baseline)
+## Baseline UI problems (fixed by U0–U2)
 
 - `apps/diskclean-gui/src/app.rs` is ~900 lines and owns the top bar, left
   navigation, filters, right inspector, and every analysis view.
@@ -194,19 +206,14 @@ labels. Validate both themes, 900x600, and HiDPI. Tooltips for truncated text.
 
 ```text
 apps/diskclean-gui/src/
-  main.rs
-  app.rs                 // update loop, routing, jobs
-  state/
-    settings.rs          // theme, language, panels, recent paths
-    scan.rs              // ScanState, cache, derived index
-    cleanup.rs
-    duplicates.rs
-  i18n/
-    mod.rs
-    en.rs
-    ru.rs
+  main.rs                // eframe entry point and window options
+  app.rs                 // app state, scan jobs, routing, shortcuts
+  settings.rs            // theme, language, panels, recent paths
+  i18n.rs                // typed EN/RU keys and plural helpers
+  dialogs.rs             // settings, help, toasts
+  tests.rs               // headless egui_kittest regression tests
   ui/
-    theme.rs             // palettes, Visuals, Style
+    theme.rs             // palettes, Visuals, Style, fonts
     tokens.rs            // spacing, radii, sizes
     components.rs
     icons.rs
@@ -217,14 +224,10 @@ apps/diskclean-gui/src/
     inspector.rs
     status_bar.rs
   views/
-    analyze.rs
-    treemap_view.rs
-    cleanup.rs
-    duplicates.rs
-    apps.rs
-  dialogs/
-    settings.rs
-    confirm.rs
+    analyze.rs           // workspace router + Analyze UI
+    overview.rs          // empty overview
+    cleanup.rs           // cleanup workspace and confirm dialog
+    duplicates.rs        // duplicate groups, keepers, apply
   treemap.rs             // pure layout, keep tests
 ```
 
@@ -241,10 +244,12 @@ apps/diskclean-gui/src/
 - Localization: typed keys, interpolation, Russian plural forms, localized rule
   titles/descriptions, mapped `ScanError` summaries with technical details in a
   disclosure.
-- New dependencies: GUI `egui_extras`, embedded Phosphor/Inter assets,
-  `sys-locale`; core `blake3`; rules `toml`, `globset`; cleanup `trash`,
-  `serde_json`, `thiserror`; apps `winreg` on Windows and optional `rusqlite`
-  for Lutris; similar `czkawka_core` optional, `image` for thumbnails.
+- Dependencies now in use: GUI `egui_extras`, embedded Phosphor/Inter assets,
+  `sys-locale`; core `blake3`; rules `toml`; cleanup `trash`, `serde_json`,
+  `thiserror`; CLI `clap`, `anyhow`, `ctrlc`; tests `tempfile`, `assert_cmd`,
+  `predicates`, `egui_kittest`. Future: apps `winreg` on Windows and optional
+  `rusqlite` for Lutris; similar `czkawka_core` optional, `image` for
+  thumbnails.
 
 ## Functional architecture
 
@@ -263,48 +268,59 @@ apps/diskclean-gui/src/
 
 ### U0 — Design foundation and refactor
 
-- [ ] Design tokens, dark/light/system palettes, typography, icon assets,
+- [x] Design tokens, dark/light/system palettes, typography, icon assets,
       formatters.
-- [ ] Split `app.rs` into shell/state/panels/views modules.
-- [ ] Settings + eframe persistence.
-- [ ] Typed i18n skeleton (EN/RU).
-- [ ] `egui_kittest` harness and synthetic tree fixture.
-- [ ] Fix Windows allocated size if it affects UI accuracy.
+- [x] Split `app.rs` into shell/state/panels/views modules.
+- [x] Settings + eframe persistence.
+- [x] Typed i18n skeleton (EN/RU).
+- [x] `egui_kittest` harness and synthetic tree fixture.
+- [x] Fix Windows allocated size if it affects UI accuracy.
 
 Exit: existing features preserved; theme/language switch; settings and panel
 sizes survive restart; fmt, clippy, tests pass.
 
 ### U1 — Shell and navigation
 
-- [ ] Top command bar, left navigation, inspector, status bar.
-- [ ] Unified recents/cache, volume cards, empty overview.
-- [ ] Scan options dialog.
-- [ ] Scan progress, cancel, preserve previous results, error/toast states.
+- [x] Top command bar, left navigation, inspector, status bar.
+- [x] Unified recents/cache, volume cards, empty overview.
+- [x] Scan options in the Settings dialog.
+- [x] Scan progress, cancel, preserve previous results, error/toast states.
 
 Exit: no old control dump; one place per action; 900x600 and 1280x820 usable;
 all existing functionality reachable.
 
 ### U2 — Analyze workspace
 
-- [ ] Tabs, sortable virtualized tables, context menus.
-- [ ] New treemap behavior and palette.
-- [ ] Inspector and breadcrumbs.
-- [ ] Filter popover/chips.
-- [ ] Keyboard scenarios.
+- [x] Tabs, sortable virtualized tables, context menus.
+- [x] New treemap behavior and palette.
+- [x] Inspector and breadcrumbs.
+- [x] Filter popover/chips.
+- [x] Keyboard scenarios: workspace switching, rescan, search, open, arrows,
+      breadcrumbs, and native focused-checkbox toggling.
 
-Exit: smooth on 100k+ nodes; no dead-end selection; copy/reveal work.
+Exit: smooth on 100k+ nodes; no dead-end selection; copy/reveal work. Automated
+interaction tests pass; the dedicated 100k-node GUI performance pass is tracked
+under U3.
 
 ### U3 — Polish and quality
 
-- [ ] Light theme and contrast/HiDPI checks.
-- [ ] EN/RU and dark/light snapshot tests.
-- [ ] Linux X11/Wayland and Windows smoke.
-- [ ] Screenshots in README, `docs/ui.md`.
-- [ ] Update AGENTS.md and phase status.
+- [x] Automated light/dark contrast checks and high-DPI headless layout tests.
+      Both palettes and treemap labels meet 4.5:1; 125% and 200% scaling are
+      exercised at 900x600.
+- [ ] Manual visual light/dark/HiDPI pass on a real display.
+- [ ] EN/RU and dark/light snapshot tests. Runtime language/theme switch tests
+      exist; pixel snapshots are not wired yet.
+- [ ] 100k-node GUI performance pass.
+- [ ] Linux X11/Wayland runtime smoke and interactive Windows smoke. The
+      Windows target cross-check passes locally.
+- [ ] Screenshots in README and `docs/ui.md`.
+- [x] Write `docs/ui.md` with the design system, layout, interaction,
+      accessibility, and snapshot strategy.
+- [x] Update AGENTS.md and phase status.
 
 ## Remaining feature milestones
 
-### Phase 2 — Safe cleanup, trash, audit log
+### Phase 2 — Safe cleanup, trash, audit log (complete)
 
 - TOML rules with id/category/risk/localized title+description/matcher/action.
 - Built-in common/Linux/Windows packs; custom user rules disabled initially.
@@ -331,18 +347,20 @@ Exit: smooth on 100k+ nodes; no dead-end selection; copy/reveal work.
 Exit: no protected path passes; every mutation confirmed and audited; fake
 backend covers success/error/cancel/changed-file; system commands never run.
 
-### Phase 3 — Exact duplicates
+### Phase 3 — Exact duplicates (complete)
 
 - Core engine: size buckets → prefix hash → full BLAKE3, streaming, cancellation,
-  progress. Regular files only; symlinks and hardlink entries excluded; hardlink
-  groups badged as zero savings.
+  progress. Regular files only; symlinks and hardlink aliases excluded and
+  counted as skipped aliases.
 - Detect changes during hashing; skip unreadable groups with issues.
-- Duplicates workspace: summary, min-size filter, group table, keeper selection,
-  potential savings. Nothing preselected; explicit “all copies except keeper”.
-  Trash through the shared review/audit pipeline.
+- Duplicates workspace: summary, min-size filter, group cards, keeper selection,
+  potential savings relative to the chosen keeper. Nothing preselected; explicit
+  “all copies except keeper” and “select rest”. Trash through the shared
+  review/audit pipeline.
 - CLI `duplicates --json`, min size, progress.
-- Tests: empty, same-size different content, hardlinks, symlinks, permission
-  denied, changed during hash, cancellation.
+- Tests: empty, same-size different content, prefix collisions, hardlinks,
+  symlinks, permission denied, changed files, minimum size, hidden files,
+  cancellation, and keeper-based savings.
 
 ### Phase 4 — Applications and games
 
@@ -423,3 +441,30 @@ backend covers success/error/cancel/changed-file; system commands never run.
 
 - 2026-10-23: Plan created; U0 started. Baseline is phase 0 + phase 1 GUI
   analyzer. Next: design tokens/theme, module split, i18n, persistence.
+- 2026-10-27: U0–U2 completed. The shell, Analyze/Cleanup/Duplicates
+  workspaces, responsive inspector, persistence, EN/RU switch, and keyboard
+  navigation are implemented. Headless `egui_kittest` coverage now exercises
+  empty/analyze/cleanup/duplicates states, commands filtering, keeper
+  selection, workspace shortcuts, stale-root invalidation, and runtime
+  theme/language switching.
+- 2026-10-27: Phase 2 completed. Built-in TOML rule packs, discovery,
+  protected paths, item snapshots, revalidation, trash-only mutation, JSONL
+  audit, GUI review basket/confirmation, and CLI `recommend`/`clean`
+  (`--dry-run`, `--apply --confirm`, `--audit-log`) are in place. System-only
+  rules never enter the basket and commands are copy-only.
+- 2026-10-27: Phase 3 completed. The core uses size buckets, bounded prefix
+  hashing, and full BLAKE3; symlinks and hardlink aliases are excluded, empty
+  files are ignored, and changed/unreadable files become issues. The GUI adds
+  keeper selection, select-rest/all-except-keepers, per-group savings, and the
+  shared audited trash pipeline. CLI `duplicates` supports JSON, progress,
+  cancellation, minimum size, hidden-file and filesystem options.
+- 2026-10-27: U3 automation advanced. Added palette contrast tests (all text,
+  status colors, accent text, and treemap labels at 4.5:1 or better), adjusted
+  the light status/accent colors and tile palette to meet the threshold, and
+  added 125%/200% high-DPI headless layout tests at the 900x600 minimum. Wrote
+  `docs/ui.md` and refreshed README. Manual visual smoke, a 100k-node
+  performance pass, pixel snapshots, and screenshots remain.
+- Verification on 2026-10-27: `cargo fmt --all`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, `cargo test --workspace`, and `cargo check
+  --workspace --target x86_64-pc-windows-gnu` pass. Test totals: cleanup 26,
+  CLI 11, core 14, scan integration 9, GUI 21, rules 4.
