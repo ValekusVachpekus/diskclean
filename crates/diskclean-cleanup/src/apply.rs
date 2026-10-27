@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use diskclean_rules::Risk;
 use serde::Serialize;
 
+use crate::ApplyControl;
 use crate::audit::{AuditEntry, AuditError, AuditLog};
 use crate::protected::ProtectedPaths;
 use crate::snapshot::{CleanupItem, FileSnapshot, now_unix_ms, serialize_path};
@@ -96,6 +97,18 @@ pub fn apply(
     backend: &mut dyn TrashBackend,
     audit: &mut dyn AuditSink,
 ) -> ApplyReport {
+    apply_with_control(items, protected, backend, audit, &ApplyControl::default())
+}
+
+/// Cancellation is checked during validation/hashing and between OS calls.
+/// An OS trash call already in progress is allowed to finish and be audited.
+pub fn apply_with_control(
+    items: &[CleanupItem],
+    protected: &ProtectedPaths,
+    backend: &mut dyn TrashBackend,
+    audit: &mut dyn AuditSink,
+    control: &ApplyControl,
+) -> ApplyReport {
     let batch_id = new_batch_id();
     let mut results = Vec::with_capacity(items.len());
     let mut seen = HashSet::new();
@@ -103,7 +116,38 @@ pub fn apply(
     let mut trashed_count = 0_usize;
     let mut aborted_reason = None;
 
-    for item in items {
+    control.update(0, items.len());
+    for (index, item) in items.iter().enumerate() {
+        control.update(index, items.len());
+        if control.is_cancelled() {
+            results.push(ItemResult::from_item(item, ItemResultKind::Cancelled, None));
+            aborted_reason = Some("cleanup was cancelled".to_owned());
+            break;
+        }
+        if items
+            .iter()
+            .filter_map(|selected| selected.duplicate.as_ref())
+            .any(|evidence| evidence.keeper.starts_with(&item.path))
+        {
+            results.push(ItemResult::from_item(
+                item,
+                ItemResultKind::Changed,
+                Some("item contains a keeper required by this batch".to_owned()),
+            ));
+            continue;
+        }
+        if let Some(evidence) = &item.duplicate
+            && items
+                .iter()
+                .any(|selected| evidence.keeper.starts_with(&selected.path))
+        {
+            results.push(ItemResult::from_item(
+                item,
+                ItemResultKind::Changed,
+                Some("keeper or its parent is selected for cleanup".to_owned()),
+            ));
+            continue;
+        }
         if item.risk == Risk::SystemOnly {
             results.push(ItemResult::from_item(
                 item,
@@ -129,8 +173,13 @@ pub fn apply(
             continue;
         }
 
-        match revalidate(item) {
+        match revalidate(item, control) {
             Ok(()) => {}
+            Err(RevalidateError::Cancelled) => {
+                results.push(ItemResult::from_item(item, ItemResultKind::Cancelled, None));
+                aborted_reason = Some("cleanup was cancelled".to_owned());
+                break;
+            }
             Err(RevalidateError::Missing(error)) => {
                 results.push(ItemResult::from_item(
                     item,
@@ -165,6 +214,20 @@ pub fn apply(
             }
         }
 
+        if let Err(error) = crate::duplicates::verify(item, &|| control.is_cancelled()) {
+            if control.is_cancelled() {
+                results.push(ItemResult::from_item(item, ItemResultKind::Cancelled, None));
+                aborted_reason = Some("cleanup was cancelled".to_owned());
+                break;
+            }
+            results.push(ItemResult::from_item(
+                item,
+                ItemResultKind::Changed,
+                Some(error.to_string()),
+            ));
+            continue;
+        }
+
         if let Err(error) = audit.append(&AuditEntry::intent(&batch_id, item)) {
             results.push(ItemResult::from_item(
                 item,
@@ -179,22 +242,33 @@ pub fn apply(
 
         // Audit durability can take time. Revalidate again after the flush,
         // immediately before the path-based OS trash operation.
-        if protected.check(&item.path).is_err() || revalidate(item).is_err() {
+        if protected.check(&item.path).is_err()
+            || revalidate(item, control).is_err()
+            || control.is_cancelled()
+        {
+            let cancelled = control.is_cancelled();
             let mut result = ItemResult::from_item(
                 item,
-                ItemResultKind::Changed,
+                if cancelled {
+                    ItemResultKind::Cancelled
+                } else {
+                    ItemResultKind::Changed
+                },
                 Some("item changed after audit intent".to_owned()),
             );
             if let Err(error) = audit.append(&AuditEntry::result(
                 &batch_id,
                 item,
-                "changed",
+                if cancelled { "cancelled" } else { "changed" },
                 result.error.clone(),
             )) {
                 result.audit_error = Some(error.to_string());
                 aborted_reason = Some("cannot record rejected cleanup result".to_owned());
             }
             results.push(result);
+            if cancelled {
+                aborted_reason = Some("cleanup was cancelled".to_owned());
+            }
             if aborted_reason.is_some() {
                 break;
             }
@@ -254,6 +328,7 @@ pub fn apply(
         }
     }
 
+    control.update(results.len(), items.len());
     ApplyReport {
         batch_id,
         results,
@@ -264,25 +339,36 @@ pub fn apply(
 }
 
 enum RevalidateError {
+    Cancelled,
     Missing(String),
     Symlink,
     Changed,
     Metadata(String),
 }
 
-fn revalidate(item: &CleanupItem) -> Result<(), RevalidateError> {
-    let current = FileSnapshot::capture(&item.path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            RevalidateError::Missing(error.to_string())
-        } else if error.kind() == std::io::ErrorKind::InvalidInput {
-            RevalidateError::Symlink
-        } else {
-            RevalidateError::Metadata(error.to_string())
-        }
-    })?;
+fn revalidate(item: &CleanupItem, control: &ApplyControl) -> Result<(), RevalidateError> {
+    let current = FileSnapshot::capture_with_cancel(&item.path, &|| control.is_cancelled())
+        .map_err(|error| {
+            if control.is_cancelled() {
+                RevalidateError::Cancelled
+            } else if error.kind() == std::io::ErrorKind::NotFound {
+                RevalidateError::Missing(error.to_string())
+            } else if error.kind() == std::io::ErrorKind::InvalidInput {
+                RevalidateError::Symlink
+            } else {
+                RevalidateError::Metadata(error.to_string())
+            }
+        })?;
 
     if current != item.snapshot {
         return Err(RevalidateError::Changed);
+    }
+    if let Some(evidence) = &item.duplicate {
+        let keeper = FileSnapshot::capture(&evidence.keeper)
+            .map_err(|error| RevalidateError::Metadata(error.to_string()))?;
+        if keeper != evidence.keeper_snapshot {
+            return Err(RevalidateError::Changed);
+        }
     }
 
     Ok(())
@@ -609,5 +695,161 @@ mod tests {
         assert!(trash.calls.is_empty());
         assert_eq!(audit.entries.len(), 2);
         assert_eq!(audit.entries[1].outcome.as_deref(), Some("changed"));
+    }
+
+    fn duplicate_fixture() -> (
+        tempfile::TempDir,
+        ProtectedPaths,
+        diskclean_core::DuplicateGroup,
+    ) {
+        let temp = tempfile::tempdir().expect("temp");
+        let home = temp.path().join("home");
+        fs::create_dir(&home).expect("home");
+        for name in ["a", "b"] {
+            fs::write(home.join(name), b"same").expect("file");
+        }
+        let policy = ProtectedPaths::for_context(
+            &crate::CleanupContext {
+                home: Some(home.clone()),
+                ..Default::default()
+            },
+            [],
+        );
+        let report =
+            diskclean_core::find_duplicates(&home, &Default::default(), &Default::default())
+                .expect("scan");
+        (temp, policy, report.groups[0].clone())
+    }
+
+    #[test]
+    fn duplicate_evidence_is_not_refreshed_when_selected() {
+        let (_temp, policy, group) = duplicate_fixture();
+        fs::write(&group.files[1].path, b"unique new content").expect("change before selection");
+        let item =
+            CleanupItem::from_duplicate(&group.files[1], &group.files[0], &group.fingerprint)
+                .expect("select");
+        let mut trash = FakeTrash::default();
+        let report = apply(&[item], &policy, &mut trash, &mut FakeAudit::default());
+        assert_eq!(report.results[0].kind, ItemResultKind::Changed);
+        assert!(trash.calls.is_empty());
+    }
+
+    #[test]
+    fn missing_keeper_prevents_trashing_the_last_copy() {
+        let (_temp, policy, group) = duplicate_fixture();
+        let item =
+            CleanupItem::from_duplicate(&group.files[1], &group.files[0], &group.fingerprint)
+                .expect("select");
+        fs::rename(
+            &group.files[0].path,
+            group.files[0].path.with_extension("moved"),
+        )
+        .expect("move keeper");
+        let mut trash = FakeTrash::default();
+        let report = apply(&[item], &policy, &mut trash, &mut FakeAudit::default());
+        assert_ne!(report.results[0].kind, ItemResultKind::Trashed);
+        assert!(trash.calls.is_empty());
+    }
+
+    #[test]
+    fn content_changes_with_restored_metadata_are_rejected() {
+        for change_keeper in [false, true] {
+            let (_temp, policy, group) = duplicate_fixture();
+            let item =
+                CleanupItem::from_duplicate(&group.files[1], &group.files[0], &group.fingerprint)
+                    .expect("select");
+            let file = &group.files[usize::from(!change_keeper)];
+            fs::write(&file.path, b"evil").expect("change");
+            fs::File::options()
+                .write(true)
+                .open(&file.path)
+                .expect("file")
+                .set_modified(file.modified.expect("mtime"))
+                .expect("restore mtime");
+            let mut trash = FakeTrash::default();
+            let report = apply(&[item], &policy, &mut trash, &mut FakeAudit::default());
+            assert_eq!(report.results[0].kind, ItemResultKind::Changed);
+            assert!(trash.calls.is_empty());
+        }
+    }
+
+    #[test]
+    fn valid_duplicates_are_trashed_but_keeper_cannot_be_in_batch() {
+        let (_temp, policy, group) = duplicate_fixture();
+        let item =
+            CleanupItem::from_duplicate(&group.files[1], &group.files[0], &group.fingerprint)
+                .expect("select");
+        let mut trash = FakeTrash::default();
+        let report = apply(
+            std::slice::from_ref(&item),
+            &policy,
+            &mut trash,
+            &mut FakeAudit::default(),
+        );
+        assert_eq!(report.trashed_count, 1);
+        let keeper_item = CleanupItem::new(
+            &group.files[0].path,
+            "other-rule",
+            Category::Temporary,
+            Risk::Low,
+        )
+        .expect("keeper");
+        let mut trash = FakeTrash::default();
+        let report = apply(
+            &[keeper_item, item],
+            &policy,
+            &mut trash,
+            &mut FakeAudit::default(),
+        );
+        assert_eq!(report.trashed_count, 0);
+        assert!(trash.calls.is_empty());
+    }
+
+    #[test]
+    fn user_cancellation_stops_between_items_and_audits_completed_work() {
+        struct CancellingTrash {
+            control: ApplyControl,
+            calls: usize,
+        }
+        impl TrashBackend for CancellingTrash {
+            fn move_to_trash(&mut self, _: &Path) -> Result<(), TrashError> {
+                self.calls += 1;
+                self.control.cancel();
+                Ok(())
+            }
+        }
+        let (temp, policy, first) = setup();
+        let second_path = temp.path().join("home/.cache/second");
+        fs::write(&second_path, b"second").expect("second");
+        let second =
+            CleanupItem::new(second_path, "test", Category::Temporary, Risk::Low).expect("item");
+        let control = ApplyControl::default();
+        let mut trash = CancellingTrash {
+            control: control.clone(),
+            calls: 0,
+        };
+        let mut audit = FakeAudit::default();
+        let report =
+            apply_with_control(&[first, second], &policy, &mut trash, &mut audit, &control);
+        assert_eq!(trash.calls, 1);
+        assert_eq!(report.trashed_count, 1);
+        assert_eq!(report.results[1].kind, ItemResultKind::Cancelled);
+        assert_eq!(audit.entries.len(), 2);
+        assert_eq!(audit.entries[1].outcome.as_deref(), Some("trashed"));
+        assert!(report.aborted_reason.is_some());
+        assert_eq!(control.progress(), (2, 2));
+    }
+
+    #[test]
+    fn cancellation_before_apply_does_not_write_intent_or_call_backend() {
+        let (_temp, policy, item) = setup();
+        let control = ApplyControl::default();
+        control.cancel();
+        let mut trash = FakeTrash::default();
+        let mut audit = FakeAudit::default();
+        let report = apply_with_control(&[item], &policy, &mut trash, &mut audit, &control);
+        assert_eq!(report.results[0].kind, ItemResultKind::Cancelled);
+        assert!(trash.calls.is_empty());
+        assert!(audit.entries.is_empty());
     }
 }

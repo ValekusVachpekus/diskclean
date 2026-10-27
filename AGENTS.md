@@ -213,6 +213,14 @@ directory manifests, mount boundaries, Windows roots, and post-audit validation
 are covered. Cleanup/platform tests and Windows cross-check pass. See
 `docs/safety.md` for the residual race inherent in path-based OS trash APIs.
 
+S2 complete: duplicate selection retains scan evidence; apply rehashes copies
+and keepers, rejects missing/changed keepers and conflicting batches. Windows
+hashing validates opened-handle identity. All workspace tests pass.
+
+S3 complete: shared GUI apply jobs expose progress and cancellation; CLI apply
+handles Ctrl+C. Validation/hashing is cancellable and completed trash calls
+are audited before stopping. Concurrent GUI apply operations are prevented.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**

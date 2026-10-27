@@ -343,6 +343,7 @@ define_text! {
         "Расположение журнала аудита недоступно, поэтому очистка отключена."
     ),
     Applying => ("Moving to the trash…", "Перемещаем в корзину…"),
+    CancelAfterCurrent => ("Cancellation waits for the current OS operation.", "Отмена дождётся завершения текущей системной операции."),
     ApplyComplete => ("Moved to the trash", "Перемещено в корзину"),
     ApplyPartial => (
         "Cleanup finished with some failures",

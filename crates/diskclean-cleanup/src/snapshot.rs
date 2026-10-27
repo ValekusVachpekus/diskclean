@@ -219,6 +219,17 @@ pub struct CleanupItem {
     #[serde(serialize_with = "serialize_path")]
     pub path: PathBuf,
     pub snapshot: FileSnapshot,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duplicate: Option<Box<DuplicateEvidence>>,
+}
+
+/// Scan evidence for a copy and the file that must remain available.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DuplicateEvidence {
+    #[serde(serialize_with = "serialize_path")]
+    pub keeper: PathBuf,
+    pub keeper_snapshot: FileSnapshot,
+    pub fingerprint: String,
 }
 
 impl CleanupItem {
@@ -235,6 +246,12 @@ impl CleanupItem {
                 "system-only rules can never enter the trash review basket",
             ));
         }
+        if category == Category::Duplicates {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "duplicates require scan and keeper evidence",
+            ));
+        }
         let path = path.into();
         let snapshot = FileSnapshot::capture(&path)?;
         Ok(Self {
@@ -243,6 +260,57 @@ impl CleanupItem {
             risk,
             path,
             snapshot,
+            duplicate: None,
+        })
+    }
+
+    /// Pure conversion: selection retains the original scan evidence and never
+    /// refreshes a stale file into a newly approved snapshot on the UI thread.
+    pub fn from_duplicate(
+        file: &diskclean_core::DuplicateFile,
+        keeper: &diskclean_core::DuplicateFile,
+        fingerprint: &str,
+    ) -> io::Result<Self> {
+        if file.path == keeper.path
+            || (file.dev, file.ino) == (keeper.dev, keeper.ino)
+            || file.logical_size != keeper.logical_size
+            || blake3::Hash::from_hex(fingerprint).is_err()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid duplicate group evidence",
+            ));
+        }
+        fn snapshot(file: &diskclean_core::DuplicateFile) -> io::Result<FileSnapshot> {
+            if file.dev == 0 || file.ino == 0 {
+                return Err(io::Error::other("duplicate identity unavailable"));
+            }
+            Ok(FileSnapshot {
+                kind: ItemKind::File,
+                measured_size: file.allocated_size,
+                logical_size: file.logical_size,
+                modified_unix: file.modified_unix,
+                modified: file
+                    .modified
+                    .ok_or_else(|| io::Error::other("duplicate timestamp unavailable"))?,
+                dev: file.dev,
+                ino: file.ino,
+                nlink: file.nlink,
+                direct_children: None,
+                descendants: Vec::new(),
+            })
+        }
+        Ok(Self {
+            path: file.path.clone(),
+            rule_id: "exact-duplicates".to_owned(),
+            category: Category::Duplicates,
+            risk: Risk::Medium,
+            snapshot: snapshot(file)?,
+            duplicate: Some(Box::new(DuplicateEvidence {
+                keeper: keeper.path.clone(),
+                keeper_snapshot: snapshot(keeper)?,
+                fingerprint: fingerprint.to_owned(),
+            })),
         })
     }
 

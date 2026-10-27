@@ -7,14 +7,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use diskclean_cleanup::{
-    ApplyReport, AuditLog, CleanupContext, CleanupItem, ItemResultKind, ProtectedPaths,
-    SystemTrash, apply as apply_cleanup, default_audit_path,
+    ApplyReport, CleanupContext, CleanupItem, ItemResultKind, ProtectedPaths, default_audit_path,
 };
 use diskclean_core::{
     DuplicateControl, DuplicateFile, DuplicateOptions, DuplicatePhase, DuplicateReport,
     find_duplicates,
 };
-use diskclean_rules::{Category, Risk};
 use eframe::egui::{
     self, Align, Button, Checkbox, Color32, Context, FontId, Frame, Id, Layout, Margin, RichText,
     ScrollArea, Stroke, TextEdit, vec2,
@@ -22,6 +20,7 @@ use eframe::egui::{
 
 use crate::app::{DiskCleanupApp, ToastKind, Workspace};
 use crate::i18n::{self, Key};
+use crate::jobs::CleanupApplyJob as DuplicateApplyJob;
 use crate::ui::{components, format, icons, theme, tokens};
 
 pub(crate) enum DuplicateRunError {
@@ -39,15 +38,6 @@ pub(crate) enum DuplicateJob {
         started: Instant,
     },
     Failed,
-}
-
-#[derive(Debug, Default)]
-pub(crate) enum DuplicateApplyJob {
-    #[default]
-    Idle,
-    Running {
-        receiver: Receiver<Result<ApplyReport, String>>,
-    },
 }
 
 pub(crate) struct DuplicateWorkspace {
@@ -144,8 +134,23 @@ impl DuplicateWorkspace {
     }
 
     pub(crate) fn set_keeper(&mut self, group: &diskclean_core::DuplicateGroup, path: PathBuf) {
+        let Some(keeper) = group.files.iter().find(|file| file.path == path) else {
+            return;
+        };
         self.keepers.insert(group.fingerprint.clone(), path.clone());
         self.selected.remove(&path);
+        for file in &group.files {
+            if self.selected.contains_key(&file.path) {
+                match CleanupItem::from_duplicate(file, keeper, &group.fingerprint) {
+                    Ok(item) => {
+                        self.selected.insert(file.path.clone(), item);
+                    }
+                    Err(_) => {
+                        self.selected.remove(&file.path);
+                    }
+                }
+            }
+        }
     }
 
     /// Drops results that belong to a previous analysis root.
@@ -174,19 +179,20 @@ impl DuplicateWorkspace {
         file: &DuplicateFile,
         checked: bool,
         keeper: &Path,
+        group: &diskclean_core::DuplicateGroup,
     ) -> Result<(), String> {
         if file.path == keeper {
             self.selected.remove(&file.path);
             return Ok(());
         }
         if checked {
-            let item = CleanupItem::new(
-                &file.path,
-                "exact-duplicates",
-                Category::Duplicates,
-                Risk::Medium,
-            )
-            .map_err(|error| error.to_string())?;
+            let keeper = group
+                .files
+                .iter()
+                .find(|file| file.path == keeper)
+                .ok_or_else(|| "keeper is not in the scanned group".to_owned())?;
+            let item = CleanupItem::from_duplicate(file, keeper, &group.fingerprint)
+                .map_err(|error| error.to_string())?;
             self.selected.insert(file.path.clone(), item);
         } else {
             self.selected.remove(&file.path);
@@ -202,7 +208,7 @@ impl DuplicateWorkspace {
         let files = group.files.clone();
         for file in files {
             if file.path != keeper {
-                self.toggle_copy(&file, true, &keeper)?;
+                self.toggle_copy(&file, true, &keeper, group)?;
             }
         }
         Ok(())
@@ -236,12 +242,10 @@ impl DuplicateWorkspace {
         }
         duplicates.groups.retain(|group| group.files.len() >= 2);
         for group in &mut duplicates.groups {
-            let total = group
+            group.reclaimable_bytes = group
                 .files
-                .iter()
-                .fold(0_u64, |sum, file| sum.saturating_add(file.allocated_size));
-            let keeper_size = group.files.first().map_or(0, |file| file.allocated_size);
-            group.reclaimable_bytes = total.saturating_sub(keeper_size);
+                .first()
+                .map_or(0, |file| group.savings_keeping(&file.path));
             if let Some(keeper) = self.keepers.get(&group.fingerprint)
                 && !group.files.iter().any(|file| &file.path == keeper)
                 && let Some(first) = group.files.first()
@@ -449,7 +453,7 @@ impl DiskCleanupApp {
     }
 
     pub(crate) fn start_duplicate_apply(&mut self) {
-        if !self.duplicates.can_apply() {
+        if !self.duplicates.can_apply() || self.cleanup.is_applying() {
             return;
         }
         let Some(protected) = self.duplicates.protected.clone() else {
@@ -461,16 +465,7 @@ impl DiskCleanupApp {
             return;
         };
         let items: Vec<CleanupItem> = self.duplicates.selected.values().cloned().collect();
-        let (sender, receiver) = mpsc::channel();
-        thread::spawn(move || {
-            let result = (|| {
-                let mut audit = AuditLog::open(&audit_path).map_err(|error| error.to_string())?;
-                let mut backend = SystemTrash;
-                Ok(apply_cleanup(&items, &protected, &mut backend, &mut audit))
-            })();
-            let _ = sender.send(result);
-        });
-        self.duplicates.apply_job = DuplicateApplyJob::Running { receiver };
+        self.duplicates.apply_job = DuplicateApplyJob::start(items, protected, audit_path);
         self.duplicates.confirm_open = false;
         self.duplicates.error = None;
     }
@@ -607,6 +602,9 @@ impl DiskCleanupApp {
 
     fn duplicates_banners(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette;
+        self.duplicates
+            .apply_job
+            .show_progress(ui, palette, self.language());
         if let Some(error) = self.duplicates.error.clone() {
             ui.add_space(6.0);
             Frame::new()
@@ -1238,7 +1236,9 @@ impl DiskCleanupApp {
                 DuplicateUiAction::Toggle(index, file, checked) => {
                     if let Some(group) = report.groups.get(index) {
                         let keeper = self.duplicates.keeper_for(group).to_path_buf();
-                        if let Err(error) = self.duplicates.toggle_copy(&file, checked, &keeper) {
+                        if let Err(error) =
+                            self.duplicates.toggle_copy(&file, checked, &keeper, group)
+                        {
                             self.notify(error, ToastKind::Error);
                         }
                     }

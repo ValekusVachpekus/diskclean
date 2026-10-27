@@ -29,7 +29,15 @@ reviewing their folders. Moving data to trash normally does not free disk space
 until the user empties the trash separately.
 
 Metadata checks cannot detect deliberately restored metadata. Duplicate cleanup
-requires stronger content evidence (tracked under S2 in `plan.md`).
+therefore rehashes both the reviewed copy and keeper with BLAKE3 before intent,
+checks opened-handle identity, and rechecks their metadata after intent. Selection
+uses scan-time snapshots; it does not silently approve changes since scanning.
+Keepers and their parents cannot be trashed in the same batch. Concurrent writes
+after the final check remain subject to the OS race described above.
+
+Cancel/Escape in the GUI and Ctrl+C during CLI apply stop subsequent operations.
+An in-flight OS trash call finishes and is audited before cancellation takes
+effect. Directory revalidation and duplicate hashing also check cancellation.
 
 Windows runtime tests remain required; cross-compilation does not validate OS
 trash behavior or reparse-point handling on a real Windows filesystem.

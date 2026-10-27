@@ -3,6 +3,7 @@
 mod app;
 mod dialogs;
 mod i18n;
+mod jobs;
 mod panels;
 mod settings;
 #[cfg(test)]

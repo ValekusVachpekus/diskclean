@@ -561,7 +561,10 @@ impl DiskCleanupApp {
 
         let keyboard_input = context.egui_wants_keyboard_input();
         if escape && !keyboard_input {
-            if !self.filters.search.is_empty() || self.filters_active() > 0 {
+            if self.cleanup.is_applying() || self.duplicates.is_applying() {
+                self.cleanup.apply_job.cancel();
+                self.duplicates.apply_job.cancel();
+            } else if !self.filters.search.is_empty() || self.filters_active() > 0 {
                 self.clear_filters();
             } else if self.workspace == Workspace::Analyze
                 && let Some(tree) = self.tree.clone()

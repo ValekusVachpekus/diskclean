@@ -14,9 +14,9 @@ safety audit. Stabilization takes priority over applications and similar media.
 - [x] S1: reject linked ancestors/reparse points and mount crossings; capture
       precise timestamps and complete directory manifests; recheck after audit
       intent; add adversarial regression tests and document residual OS races.
-- [ ] S2: retain duplicate scan evidence and verify both copies and keepers
+- [x] S2: retain duplicate scan evidence and verify both copies and keepers
       before trashing; validate opened-file identity on Windows.
-- [ ] S3: shared cancellable cleanup jobs in GUI/CLI, with per-item progress.
+- [x] S3: shared cancellable cleanup jobs in GUI/CLI, with per-item progress.
 - [ ] S4: full-tree analysis index, correct sorting, consistent filters and
       localized issue summaries; automated 100k-node performance coverage.
 - [ ] S5: correct platform user directories, documentation/CI quality gates,
@@ -457,6 +457,21 @@ backend covers success/error/cancel/changed-file; system commands never run.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-28 (S3): Added cooperative apply cancellation during directory
+  validation/content hashing and between trash calls. Both GUI workspaces use
+  one background apply job with progress and Cancel; Escape cancels active
+  apply, and CLI handles Ctrl+C. Concurrent GUI apply jobs are refused. Work
+  already completed is still audited; cancellation does not interrupt an OS
+  trash operation in flight. Added pre-start/between-items cancellation tests.
+
+- 2026-10-28 (S2): Duplicate selections retain original scan metadata without
+  filesystem work on the UI thread. Apply verifies BLAKE3 content and metadata
+  for both copy and keeper; a keeper cannot be selected in the same batch.
+  Keeper switches update the selected copies' evidence. Opened-file identity
+  checks now run on Windows too, and hardlinked copies do not overstate savings.
+  Added regressions for stale selections, missing/changed keepers, restored
+  timestamps and same-size replacements. All workspace tests pass.
 
 - 2026-10-28 (S1): Cleanup now rejects linked ancestors, all Windows reparse
   tags, mount roots/descendants and incomplete directory evidence. Full

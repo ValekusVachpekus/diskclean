@@ -19,7 +19,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use blake3::Hasher;
-use diskclean_platform::{FileKind, FileMeta, metadata};
+use diskclean_platform::{
+    FileKind, FileMeta, MountPoints, check_path_components, metadata, open_regular_file,
+    opened_identity,
+};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -202,6 +205,8 @@ pub struct DuplicateFile {
     pub logical_size: u64,
     pub allocated_size: u64,
     pub modified_unix: i64,
+    pub modified: Option<SystemTime>,
+    pub nlink: u64,
     pub dev: u64,
     pub ino: u64,
 }
@@ -242,15 +247,15 @@ impl DuplicateGroup {
     /// in this group, the first file is treated as the keeper.
     #[must_use]
     pub fn savings_keeping(&self, keeper: &Path) -> u64 {
-        let keeper_size = self
+        let keeper = self
             .files
             .iter()
             .find(|file| file.path == keeper)
-            .map_or_else(
-                || self.files.first().map_or(0, |file| file.allocated_size),
-                |file| file.allocated_size,
-            );
-        self.total_allocated().saturating_sub(keeper_size)
+            .or_else(|| self.files.first());
+        self.files
+            .iter()
+            .filter(|file| Some(&file.path) != keeper.map(|file| &file.path) && file.nlink == 1)
+            .fold(0_u64, |size, file| size.saturating_add(file.allocated_size))
     }
 }
 
@@ -293,6 +298,8 @@ struct Candidate {
     size: u64,
     allocated_size: u64,
     modified_unix: i64,
+    modified: Option<SystemTime>,
+    nlink: u64,
     dev: u64,
     ino: u64,
 }
@@ -304,6 +311,8 @@ impl Candidate {
             size: meta.logical_size,
             allocated_size: meta.allocated_size,
             modified_unix: meta.modified_unix,
+            modified: meta.modified,
+            nlink: meta.nlink,
             dev: meta.dev,
             ino: meta.ino,
         }
@@ -315,6 +324,8 @@ impl Candidate {
             logical_size: self.size,
             allocated_size: self.allocated_size,
             modified_unix: self.modified_unix,
+            modified: self.modified,
+            nlink: self.nlink,
             dev: self.dev,
             ino: self.ino,
         }
@@ -346,6 +357,10 @@ pub fn find_duplicates(
         source,
     })?;
     let root_meta = metadata(&root_path).map_err(|source| DuplicateError::Root {
+        path: root_path.clone(),
+        source,
+    })?;
+    check_path_components(&root_path).map_err(|source| DuplicateError::Root {
         path: root_path.clone(),
         source,
     })?;
@@ -386,6 +401,10 @@ fn collect_candidates(
     control: &DuplicateControl,
     issues: &mut Vec<DuplicateIssue>,
 ) -> Result<(Vec<Candidate>, u64), DuplicateError> {
+    let mounts = MountPoints::read().map_err(|source| DuplicateError::Root {
+        path: root.to_path_buf(),
+        source,
+    })?;
     let mut candidates = Vec::new();
     let mut hardlink_duplicates = 0_u64;
     let mut seen_hardlinks = HashSet::new();
@@ -398,16 +417,20 @@ fn collect_candidates(
         }
         control.set_current(&directory);
 
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(error) => {
-                push_issue(control, issues, &directory, "read directory", &error);
-                continue;
-            }
-        };
+        let entries =
+            match check_path_components(&directory).and_then(|()| fs::read_dir(&directory)) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    push_issue(control, issues, &directory, "read directory", &error);
+                    continue;
+                }
+            };
 
         let mut paths = Vec::new();
         for entry in entries {
+            if cancellation(control) {
+                return Err(DuplicateError::Cancelled);
+            }
             match entry {
                 Ok(entry) => paths.push(entry.path()),
                 Err(error) => {
@@ -434,7 +457,9 @@ fn collect_candidates(
 
             match meta.kind {
                 FileKind::Directory => {
-                    if options.cross_filesystems || root_dev == 0 || meta.dev == root_dev {
+                    if options.cross_filesystems
+                        || (meta.dev == root_dev && !mounts.contains(&path))
+                    {
                         stack.push(path);
                     }
                 }
@@ -579,17 +604,16 @@ fn build_duplicate_group(fingerprint: String, mut files: Vec<Candidate>) -> Dupl
     files.sort_unstable_by(|left, right| left.path.cmp(&right.path));
     let logical_size = files.first().map_or(0, |file| file.size);
     let duplicate_files: Vec<DuplicateFile> = files.iter().map(Candidate::to_file).collect();
-    let total = duplicate_files.iter().fold(0_u64, |total, file| {
-        total.saturating_add(file.allocated_size)
-    });
-    let keeper = duplicate_files
-        .first()
-        .map_or(0, |file| file.allocated_size);
+    let reclaimable_bytes = duplicate_files
+        .iter()
+        .skip(1)
+        .filter(|file| file.nlink == 1)
+        .fold(0_u64, |size, file| size.saturating_add(file.allocated_size));
     DuplicateGroup {
         fingerprint,
         logical_size,
         files: duplicate_files,
-        reclaimable_bytes: total.saturating_sub(keeper),
+        reclaimable_bytes,
     }
 }
 
@@ -616,7 +640,7 @@ fn hash_range(
 ) -> Result<blake3::Hash, String> {
     control.set_current(&candidate.path);
     let mut file =
-        File::open(&candidate.path).map_err(|error| format!("open for hashing: {error}"))?;
+        open_regular_file(&candidate.path).map_err(|error| format!("open for hashing: {error}"))?;
     validate_open_file(&file, candidate)?;
 
     let mut hasher = Hasher::new();
@@ -656,25 +680,13 @@ fn validate_open_file(file: &File, candidate: &Candidate) -> Result<(), String> 
     if meta.len() != candidate.size {
         return Err("file size changed while hashing".to_owned());
     }
-    let modified = meta
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .unwrap_or(candidate.modified_unix);
-    if candidate.modified_unix != 0 && modified != candidate.modified_unix {
+    if candidate.modified.is_none() || meta.modified().ok() != candidate.modified {
         return Err("file modification time changed while hashing".to_owned());
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if candidate.dev != 0 && meta.dev() != candidate.dev {
-            return Err("file device changed while hashing".to_owned());
-        }
-        if candidate.ino != 0 && meta.ino() != candidate.ino {
-            return Err("file identity changed while hashing".to_owned());
-        }
+    let (dev, ino) = opened_identity(file).map_err(|error| error.to_string())?;
+    if candidate.dev == 0 || candidate.ino == 0 || dev != candidate.dev || ino != candidate.ino {
+        return Err("file identity changed or unavailable while hashing".to_owned());
     }
 
     Ok(())
@@ -926,5 +938,35 @@ mod tests {
         let group = &report.groups[0];
         let keeper = &group.files[0].path;
         assert_eq!(group.savings_keeping(keeper), group.reclaimable_bytes);
+    }
+
+    #[test]
+    fn replacement_with_same_size_and_time_has_different_identity() {
+        let temp = tempfile::tempdir().expect("temp");
+        let original = temp.path().join("original");
+        let replacement = temp.path().join("replacement");
+        write(&original, b"same");
+        write(&replacement, b"same");
+        let candidate = Candidate::from_meta(original.clone(), metadata(&original).expect("meta"));
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .open(&replacement)
+            .expect("replacement");
+        file.set_modified(candidate.modified.expect("mtime"))
+            .expect("time");
+        assert!(validate_open_file(&file, &candidate).is_err());
+    }
+
+    #[test]
+    fn external_hardlinks_do_not_promise_reclaimable_bytes() {
+        let temp = tempfile::tempdir().expect("temp");
+        write(&temp.path().join("a"), b"same");
+        write(&temp.path().join("b"), b"same");
+        let outside = tempfile::tempdir().expect("outside");
+        fs::hard_link(temp.path().join("b"), outside.path().join("alias")).expect("link");
+        let report = find_duplicates(temp.path(), &options(), &Default::default()).expect("scan");
+        assert_eq!(report.groups.len(), 1);
+        assert_eq!(report.groups[0].reclaimable_bytes, 0);
     }
 }

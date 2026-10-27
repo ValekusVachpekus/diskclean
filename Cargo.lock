@@ -866,6 +866,8 @@ checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
 name = "diskclean-cleanup"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "diskclean-core",
  "diskclean-platform",
  "diskclean-rules",
  "serde",

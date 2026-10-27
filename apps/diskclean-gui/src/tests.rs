@@ -564,13 +564,16 @@ fn loading_a_different_root_invalidates_duplicate_results() {
     let temp = tempfile::tempdir().expect("tempdir");
     let path = temp.path().join("copy.bin");
     fs::write(&path, b"duplicate fixture").expect("fixture file");
-    let item = CleanupItem::new(
-        &path,
-        "exact-duplicates",
-        Category::Duplicates,
-        Risk::Medium,
+    fs::write(temp.path().join("keeper.bin"), b"duplicate fixture").expect("keeper");
+    let scan = find_duplicates(
+        temp.path(),
+        &DuplicateOptions::default(),
+        &DuplicateControl::new(),
     )
-    .expect("item snapshot");
+    .expect("duplicates");
+    let group = &scan.groups[0];
+    let item = CleanupItem::from_duplicate(&group.files[0], &group.files[1], &group.fingerprint)
+        .expect("item evidence");
     let empty_report = DuplicateReport {
         root_path: PathBuf::from("/virtual/fixture"),
         generated_at_unix_ms: 0,

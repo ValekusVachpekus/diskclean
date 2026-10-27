@@ -7,8 +7,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use diskclean_cleanup::{
-    ApplyReport, AuditLog, CleanupContext, CleanupItem, CleanupReport, ItemResultKind,
-    ProtectedPaths, SystemTrash, apply as apply_cleanup, default_audit_path, discover_default,
+    ApplyReport, CleanupContext, CleanupItem, CleanupReport, ItemResultKind, ProtectedPaths,
+    default_audit_path, discover_default,
 };
 use diskclean_rules::{ActionKind, Category, Risk};
 use eframe::egui::{
@@ -18,6 +18,7 @@ use eframe::egui::{
 
 use crate::app::{DiskCleanupApp, ToastKind};
 use crate::i18n::{self, Key, Language};
+use crate::jobs::CleanupApplyJob as ApplyJob;
 use crate::ui::{components, format, icons, theme, tokens};
 
 #[derive(Debug, Default)]
@@ -29,15 +30,6 @@ pub(crate) enum CleanupJob {
         started: Instant,
     },
     Failed,
-}
-
-#[derive(Debug, Default)]
-pub(crate) enum ApplyJob {
-    #[default]
-    Idle,
-    Running {
-        receiver: Receiver<Result<ApplyReport, String>>,
-    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -297,7 +289,7 @@ impl DiskCleanupApp {
     }
 
     pub(crate) fn start_cleanup_apply(&mut self) {
-        if !self.cleanup.can_apply() {
+        if !self.cleanup.can_apply() || self.duplicates.is_applying() {
             return;
         }
         let Some(protected) = self.cleanup.protected.clone() else {
@@ -310,17 +302,7 @@ impl DiskCleanupApp {
         };
 
         let items: Vec<CleanupItem> = self.cleanup.selected.values().cloned().collect();
-        let (sender, receiver) = mpsc::channel();
-        thread::spawn(move || {
-            let result = (|| {
-                let mut audit = AuditLog::open(&audit_path).map_err(|error| error.to_string())?;
-                let mut backend = SystemTrash;
-                Ok(apply_cleanup(&items, &protected, &mut backend, &mut audit))
-            })();
-            let _ = sender.send(result);
-        });
-
-        self.cleanup.apply_job = ApplyJob::Running { receiver };
+        self.cleanup.apply_job = ApplyJob::start(items, protected, audit_path);
         self.cleanup.confirm_open = false;
         self.cleanup.acknowledge_high_risk = false;
         self.cleanup.error = None;
@@ -581,14 +563,9 @@ impl DiskCleanupApp {
         }
         if self.cleanup.is_applying() {
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.add(egui::Spinner::new().size(14.0).color(palette.warning));
-                ui.label(
-                    RichText::new(self.text(Key::Applying))
-                        .color(palette.warning)
-                        .size(11.5),
-                );
-            });
+            self.cleanup
+                .apply_job
+                .show_progress(ui, palette, self.language());
         }
     }
 

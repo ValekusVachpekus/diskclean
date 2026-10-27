@@ -9,8 +9,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use diskclean_cleanup::{
-    AuditLog, CleanupContext, CleanupItem, ProtectedPaths, SystemTrash, apply, default_audit_path,
-    discover_default,
+    ApplyControl, AuditLog, CleanupContext, CleanupItem, ProtectedPaths, SystemTrash,
+    apply_with_control, default_audit_path, discover_default,
 };
 use diskclean_core::{
     DuplicateControl, DuplicateOptions, DuplicateProgress, FileSummary, ProgressSnapshot,
@@ -455,7 +455,11 @@ fn run_clean(args: CleanArgs) -> Result<()> {
     let mut audit = AuditLog::open(&audit_path)
         .with_context(|| format!("cannot open audit log {}", audit_path.display()))?;
     let mut backend = SystemTrash;
-    let result = apply(&selected, &protected, &mut backend, &mut audit);
+    let control = ApplyControl::default();
+    let handler_control = control.clone();
+    ctrlc::set_handler(move || handler_control.cancel())
+        .context("cannot install cleanup cancellation handler")?;
+    let result = apply_with_control(&selected, &protected, &mut backend, &mut audit, &control);
 
     if args.json {
         write_json(&result)?;
