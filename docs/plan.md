@@ -4,7 +4,26 @@ Status: **active**. This file is the durable working plan. Update the status
 table and the relevant milestone notes whenever work lands. `AGENTS.md` links
 here so a fresh agent can recover context after a reset.
 
-Last updated: 2026-10-27.
+Last updated: 2026-10-28.
+
+## Stabilization after the 2026-10-28 review
+
+The original milestones below describe delivered functionality, not a completed
+safety audit. Stabilization takes priority over applications and similar media.
+
+- [ ] S1: reject linked ancestors/reparse points and mount crossings; capture
+      precise timestamps and complete directory manifests; recheck after audit
+      intent; add adversarial regression tests and document residual OS races.
+- [ ] S2: retain duplicate scan evidence and verify both copies and keepers
+      before trashing; validate opened-file identity on Windows.
+- [ ] S3: shared cancellable cleanup jobs in GUI/CLI, with per-item progress.
+- [ ] S4: full-tree analysis index, correct sorting, consistent filters and
+      localized issue summaries; automated 100k-node performance coverage.
+- [ ] S5: correct platform user directories, documentation/CI quality gates,
+      final Linux tests and Windows cross-check.
+
+Real-display visual checks and interactive Windows testing remain separate
+release gates and must not be marked complete based on cross-compilation.
 
 ## Status snapshot
 

@@ -166,7 +166,7 @@ UI/UX redesign U0–U2 complete (details in `docs/plan.md`):
 - [x] `docs/ui.md` design system, interaction, accessibility, and snapshot plan
 - [ ] U3 manual visual smoke, 100k performance pass, snapshots, screenshots
 
-Safe cleanup complete:
+Safe cleanup implemented; safety stabilization in progress (2026-10-28):
 
 - [x] Built-in common/Linux/Windows TOML rules, including recommendation-only
       system commands
@@ -180,7 +180,7 @@ Safe cleanup complete:
 - [x] Cleanup tests cover protected paths, changed files, symlink
       substitution, audit failures, partial failures, and fake-backend cancel
 
-Exact duplicates complete:
+Exact duplicates implemented; scan-to-cleanup validation in progress:
 
 - [x] Core size → bounded prefix hash → full BLAKE3 pipeline with progress,
       cancellation, bounded candidate collection, and issue reporting
@@ -201,6 +201,11 @@ scan integration 9, GUI 21, rules 4.
 
 Later phases are not started: applications/games, similar photos/videos,
 system recommendation polish, and packaging.
+
+The 2026-10-28 review reopened safety and analyzer acceptance criteria. Follow
+the S1–S5 stabilization checklist in `docs/plan.md` before adding later phases.
+Known gaps include linked ancestors, directory descendants, timestamp precision,
+duplicate keeper validation, cancellation, and analysis indexing/filtering.
 
 ## Roadmap
 
