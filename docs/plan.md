@@ -460,6 +460,22 @@ backend covers success/error/cancel/changed-file; system commands never run.
 
 ## Progress log
 
+- 2026-10-28 (U3 duplicates polish): Groups now start collapsed and toggle from
+  the header. Viewport culling covers both group cards and file rows inside
+  expanded groups, with fixed geometry and stable widget IDs. Duplicate numeric
+  summaries are cached until the report or keeper changes. Cleanup and Duplicates
+  share vertical statistics cards with equal minimum heights and a responsive
+  three/one-column grid, fixing inherited horizontal layout and text overflow.
+  Current hashing paths occupy a separate truncated line to keep progress stable.
+  Fixed “select all except keepers” using the displayed report (temporarily taken
+  from workspace state while rendering); bulk selection no longer clones whole
+  reports/file lists or searches for the keeper once per copy. Added tests for
+  collapse/expand, bulk selection, EN/RU geometry in dark/light themes at
+  480/760/1100 logical pixels, and scrolling an expanded 100,000-file group with
+  fewer than 40 file rows rendered. Real-display visual/performance acceptance
+  remains open. Verification: all 112 workspace tests (30 GUI), fmt, workspace
+  clippy with -D warnings and Windows cross-check pass; Linux release GUI rebuilt.
+
 - 2026-10-28 (U3 layout fix): Overview volume cards now explicitly lay out
   their contents vertically, end grid rows and switch to one column below
   660 logical pixels. Long mount/recent paths truncate with full tooltips;

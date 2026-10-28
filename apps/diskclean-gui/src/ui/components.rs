@@ -225,3 +225,38 @@ pub(crate) fn right_label(ui: &mut Ui, palette: Palette, text: &str, monospace: 
         }
     });
 }
+
+pub(crate) fn stat_card(
+    ui: &mut egui::Ui,
+    palette: crate::ui::theme::Palette,
+    title: &str,
+    value: &str,
+    detail: &str,
+    color: Color32,
+    width: f32,
+) {
+    egui::Frame::new()
+        .fill(palette.surface)
+        .stroke(Stroke::new(1.0, palette.border))
+        .corner_radius(crate::ui::tokens::RADIUS_CARD)
+        .inner_margin(10)
+        .show(ui, |ui| {
+            ui.set_width(width - 22.0);
+            ui.set_min_height(96.0);
+            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                ui.label(
+                    RichText::new(title.to_uppercase())
+                        .color(palette.muted)
+                        .size(9.5),
+                );
+                ui.label(
+                    RichText::new(value)
+                        .font(crate::ui::theme::semibold(16.0))
+                        .color(color),
+                );
+                ui.add(
+                    egui::Label::new(RichText::new(detail).color(palette.muted).size(9.5)).wrap(),
+                );
+            });
+        });
+}

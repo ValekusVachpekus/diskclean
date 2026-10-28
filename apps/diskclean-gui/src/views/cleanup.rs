@@ -677,44 +677,57 @@ impl DiskCleanupApp {
         });
 
         ui.add_space(5.0);
-        let card_width = ((ui.available_width() - 16.0) / 3.0).max(150.0);
-        ui.horizontal_wrapped(|ui| {
-            cleanup_stat_card(
-                ui,
-                palette,
-                self.text(Key::Candidates),
-                &i18n::items_text(self.language(), total_items),
-                &format::size(self.language(), total_bytes),
-                palette.text,
-                card_width,
-            );
-            cleanup_stat_card(
-                ui,
-                palette,
-                self.text(Key::SelectSafe),
-                &i18n::items_text(self.language(), safe_items),
-                &format!(
-                    "{} {}",
-                    format::size(self.language(), safe_bytes),
-                    self.text(Key::PotentialSavings)
-                ),
-                palette.success,
-                card_width,
-            );
-            cleanup_stat_card(
-                ui,
-                palette,
-                self.text(Key::RiskHigh),
-                &i18n::items_text(self.language(), high_items),
-                self.text(Key::NeedsConfirmation),
-                if high_items > 0 {
-                    palette.warning
-                } else {
-                    palette.muted
-                },
-                card_width,
-            );
-        });
+        let columns = if ui.available_width() >= 660.0 { 3 } else { 1 };
+        let card_width = (ui.available_width() - (columns - 1) as f32 * 8.0) / columns as f32;
+        egui::Grid::new("cleanup_summary")
+            .num_columns(columns)
+            .spacing(vec2(8.0, 8.0))
+            .show(ui, |ui| {
+                components::stat_card(
+                    ui,
+                    palette,
+                    self.text(Key::Candidates),
+                    &i18n::items_text(self.language(), total_items),
+                    &format::size(self.language(), total_bytes),
+                    palette.text,
+                    card_width,
+                );
+                if columns == 1 {
+                    ui.end_row();
+                }
+                components::stat_card(
+                    ui,
+                    palette,
+                    self.text(Key::SelectSafe),
+                    &i18n::items_text(self.language(), safe_items),
+                    &format!(
+                        "{} {}",
+                        format::size(self.language(), safe_bytes),
+                        self.text(Key::PotentialSavings)
+                    ),
+                    palette.success,
+                    card_width,
+                );
+                if columns == 1 {
+                    ui.end_row();
+                }
+                components::stat_card(
+                    ui,
+                    palette,
+                    self.text(Key::RiskHigh),
+                    &i18n::items_text(self.language(), high_items),
+                    self.text(Key::NeedsConfirmation),
+                    if high_items > 0 {
+                        palette.warning
+                    } else {
+                        palette.muted
+                    },
+                    card_width,
+                );
+                if columns == 1 {
+                    ui.end_row();
+                }
+            });
     }
 
     fn cleanup_filter_bar(&mut self, ui: &mut egui::Ui, report: &CleanupReport) {
@@ -1267,36 +1280,6 @@ impl DiskCleanupApp {
             self.cleanup.acknowledge_high_risk = false;
         }
     }
-}
-
-fn cleanup_stat_card(
-    ui: &mut egui::Ui,
-    palette: crate::ui::theme::Palette,
-    title: &str,
-    value: &str,
-    detail: &str,
-    color: Color32,
-    width: f32,
-) {
-    Frame::new()
-        .fill(palette.surface)
-        .stroke(Stroke::new(1.0, palette.border))
-        .corner_radius(tokens::RADIUS_CARD)
-        .inner_margin(10)
-        .show(ui, |ui| {
-            ui.set_width(width - 20.0);
-            ui.label(
-                RichText::new(title.to_uppercase())
-                    .color(palette.muted)
-                    .size(9.5),
-            );
-            ui.label(
-                RichText::new(value)
-                    .font(theme::semibold(16.0))
-                    .color(color),
-            );
-            ui.label(RichText::new(detail).color(palette.muted).size(9.5));
-        });
 }
 
 fn cleanup_rule_card(

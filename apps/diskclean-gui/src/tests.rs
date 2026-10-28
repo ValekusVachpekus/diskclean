@@ -732,7 +732,14 @@ fn duplicate_workspace_selects_rest_without_the_keeper() {
     assert!(!app.duplicates.selected.contains_key(&keeper));
     assert!(app.duplicates.can_apply());
 
-    let harness = harness(app, Vec2::new(1280.0, 820.0));
+    let mut harness = harness(app, Vec2::new(1280.0, 820.0));
+    assert!(harness.query_by_label("Select the rest").is_none());
+    harness
+        .query_by_label_contains("a.bin")
+        .expect("group header")
+        .click();
+    harness.run();
+    assert!(harness.query_by_label("Select the rest").is_some());
     assert!(
         harness
             .query_all_by_label_contains("a.bin")
@@ -922,4 +929,152 @@ fn scan_progress_uses_occupied_bytes_of_the_enclosing_volume() {
     assert_eq!(app.scan_volume_bytes(&nested), None);
     app.volumes.clear();
     assert_eq!(app.scan_volume_bytes(temp.path()), None);
+}
+
+fn duplicate_ui_fixture() -> DuplicateReport {
+    let temp = tempfile::tempdir().expect("tempdir");
+    for name in ["a.bin", "b.bin", "c.bin"] {
+        fs::write(temp.path().join(name), [42; 4096]).expect("fixture");
+    }
+    find_duplicates(
+        temp.path(),
+        &DuplicateOptions {
+            min_size: 0,
+            ..Default::default()
+        },
+        &DuplicateControl::new(),
+    )
+    .expect("report")
+}
+
+#[test]
+fn duplicate_groups_toggle_and_bulk_selection_uses_displayed_report() {
+    let mut app = test_app(english_settings(), false);
+    app.workspace = Workspace::Duplicates;
+    app.duplicates.report = Some(duplicate_ui_fixture());
+    let mut harness = harness(app, Vec2::new(1280.0, 820.0));
+    assert!(harness.query_by_label("Select the rest").is_none());
+    harness
+        .query_by_label_contains("a.bin")
+        .expect("header")
+        .click();
+    harness.run();
+    assert!(harness.query_by_label("Select the rest").is_some());
+    harness
+        .query_by_label(&format!("{} a.bin", crate::ui::icons::CARET_DOWN))
+        .expect("header")
+        .click();
+    harness.run();
+    assert!(harness.query_by_label("Select the rest").is_none());
+    harness
+        .query_by_label("Select all except keepers")
+        .expect("bulk select")
+        .click();
+    harness.run();
+    assert_eq!(harness.state().duplicates.selected.len(), 2);
+}
+
+#[test]
+fn duplicate_workspace_virtualizes_a_hundred_thousand_files() {
+    let mut report = duplicate_ui_fixture();
+    let template = report.groups[0].files[0].clone();
+    report.groups[0].files = (0..100_000)
+        .map(|index| {
+            let mut file = template.clone();
+            file.path = PathBuf::from(format!("/fixture/copy-{index:06}.bin"));
+            file
+        })
+        .collect();
+    let fingerprint = report.groups[0].fingerprint.clone();
+    let mut app = test_app(english_settings(), false);
+    app.workspace = Workspace::Duplicates;
+    app.duplicates.report = Some(report);
+    app.duplicates.expanded_groups.insert(fingerprint);
+    let mut harness = harness(app, Vec2::new(1280.0, 820.0));
+    let visible = harness
+        .query_all_by_label_contains("Keep /fixture/")
+        .count();
+    assert!(visible > 0 && visible < 40, "rendered {visible} rows");
+    assert!(harness.query_by_label_contains("copy-099999.bin").is_none());
+    let first = harness
+        .query_by_label_contains("Keep /fixture/copy-000000.bin")
+        .expect("first row")
+        .rect();
+    harness.hover_at(first.center());
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -2600.0),
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
+        modifiers: Modifiers::NONE,
+    });
+    harness.run_steps(12);
+    assert!(
+        harness
+            .query_by_label_contains("Keep /fixture/copy-000000.bin")
+            .is_none()
+    );
+    let visible = harness
+        .query_all_by_label_contains("Keep /fixture/")
+        .count();
+    assert!(
+        visible > 0 && visible < 40,
+        "rendered {visible} rows after scrolling"
+    );
+}
+
+#[test]
+fn duplicate_summary_and_list_fit_both_languages_and_themes() {
+    for language in [Language::English, Language::Russian] {
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            for width in [480.0, 760.0, 1100.0] {
+                let mut app = test_app(english_settings(), false);
+                app.settings.language = language;
+                app.settings.theme = mode;
+                app.palette = theme::Palette::for_theme(mode, None);
+                app.duplicates.report = Some(duplicate_ui_fixture());
+                let mut harness = Harness::builder()
+                    .with_size(Vec2::new(width, 900.0))
+                    .with_accessibility_check(false)
+                    .with_context_setup(move |ctx| {
+                        theme::install_fonts(ctx);
+                        theme::apply(ctx, mode);
+                    })
+                    .build_ui_state(
+                        |ui, state: &mut (DiskCleanupApp, f32)| {
+                            let right = ui.max_rect().right();
+                            state.0.duplicates_workspace(ui);
+                            state.1 = ui.min_rect().right() - right;
+                        },
+                        (app, 0.0),
+                    );
+                harness.run();
+                assert!(
+                    harness.state().1 <= 1.0,
+                    "overflow at {width}: {}",
+                    harness.state().1
+                );
+                let title = harness
+                    .query_by_label(if language == Language::English {
+                        "DUPLICATE GROUPS"
+                    } else {
+                        "ГРУППЫ ДУБЛИКАТОВ"
+                    })
+                    .expect("stat title")
+                    .rect();
+                let value = harness
+                    .query_by_label(if language == Language::English {
+                        "1 group"
+                    } else {
+                        "1 группа"
+                    })
+                    .expect("stat value")
+                    .rect();
+                assert!(
+                    value.top() >= title.bottom(),
+                    "stat text must stack vertically"
+                );
+            }
+        }
+    }
 }

@@ -248,6 +248,20 @@ Verification: 27 GUI tests, fmt, GUI clippy with -D warnings and Linux
 release build pass; installer and symlink checked. Interactive visual
 acceptance remains open.
 
+U3 duplicates polish (2026-10-28): duplicate groups start collapsed and toggle
+from their header. Only visible groups/file rows are laid out, including inside
+very large expanded groups; stable IDs preserve keeper/checkbox interactions.
+Numeric duplicate summaries are cached and invalidated on report/keeper changes.
+Shared Cleanup/Duplicates statistics cards now stack their text vertically, use
+equal minimum heights and switch to one column in narrow workspaces. Hashing
+paths have their own truncated line to avoid progress layout jumps. Fixed bulk
+selection against the displayed report and removed repeated keeper lookup and
+report/file-list cloning during select-rest. Added EN/RU dark/light geometry,
+collapse/expand/bulk-selection and 100k-file scrolling regressions. Manual
+real-display smoothness/visual acceptance remains open. Verification: all 112
+workspace tests (30 GUI), fmt, workspace clippy with -D warnings and Windows
+cross-check pass; Linux release GUI rebuilt.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**

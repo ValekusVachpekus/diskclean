@@ -40,7 +40,15 @@ pub(crate) enum DuplicateJob {
     Failed,
 }
 
+#[derive(Default)]
+struct DuplicateSummary {
+    copies: usize,
+    reclaimable: u64,
+    group_savings: Vec<u64>,
+}
+
 pub(crate) struct DuplicateWorkspace {
+    summary: Option<DuplicateSummary>,
     pub(crate) report: Option<DuplicateReport>,
     pub(crate) job: DuplicateJob,
     pub(crate) apply_job: DuplicateApplyJob,
@@ -61,6 +69,7 @@ pub(crate) struct DuplicateWorkspace {
 impl Default for DuplicateWorkspace {
     fn default() -> Self {
         Self {
+            summary: None,
             report: None,
             job: DuplicateJob::Idle,
             apply_job: DuplicateApplyJob::Idle,
@@ -137,6 +146,7 @@ impl DuplicateWorkspace {
         let Some(keeper) = group.files.iter().find(|file| file.path == path) else {
             return;
         };
+        self.summary = None;
         self.keepers.insert(group.fingerprint.clone(), path.clone());
         self.selected.remove(&path);
         for file in &group.files {
@@ -164,6 +174,7 @@ impl DuplicateWorkspace {
         }
         self.job = DuplicateJob::Idle;
         self.report = None;
+        self.summary = None;
         self.selected.clear();
         self.keepers.clear();
         self.expanded_groups.clear();
@@ -204,29 +215,33 @@ impl DuplicateWorkspace {
         &mut self,
         group: &diskclean_core::DuplicateGroup,
     ) -> Result<(), String> {
-        let keeper = self.keeper_for(group).to_path_buf();
-        let files = group.files.clone();
-        for file in files {
-            if file.path != keeper {
-                self.toggle_copy(&file, true, &keeper, group)?;
+        let keeper_path = self.keeper_for(group);
+        let Some(keeper) = group.files.iter().find(|file| file.path == keeper_path) else {
+            return Err("keeper is not in the scanned group".to_owned());
+        };
+        // Resolve the keeper once: a large group must not search all its files per copy.
+        for file in &group.files {
+            if file.path != keeper.path {
+                let item = CleanupItem::from_duplicate(file, keeper, &group.fingerprint)
+                    .map_err(|error| error.to_string())?;
+                self.selected.insert(file.path.clone(), item);
             }
         }
         Ok(())
     }
 
-    pub(crate) fn select_all_except_keepers(&mut self) -> Result<(), String> {
-        let groups = self
-            .report
-            .as_ref()
-            .map(|report| report.groups.clone())
-            .unwrap_or_default();
-        for group in groups {
-            self.select_rest(&group)?;
+    pub(crate) fn select_all_except_keepers(
+        &mut self,
+        report: &DuplicateReport,
+    ) -> Result<(), String> {
+        for group in &report.groups {
+            self.select_rest(group)?;
         }
         Ok(())
     }
 
     pub(crate) fn remove_trashed(&mut self, report: &ApplyReport) {
+        self.summary = None;
         let trashed: std::collections::HashSet<PathBuf> = report
             .results
             .iter()
@@ -353,6 +368,7 @@ impl DiskCleanupApp {
                         keepers.insert(group.fingerprint.clone(), first.path.clone());
                     }
                 }
+                self.duplicates.summary = None;
                 self.duplicates.report = Some(report);
                 self.duplicates.keepers = keepers;
                 self.duplicates.selected.clear();
@@ -479,6 +495,19 @@ impl DiskCleanupApp {
             None if report.is_none() => self.duplicates_need_scan(ui),
             _ => {
                 if let Some(report) = report.as_ref() {
+                    if self.duplicates.summary.is_none() {
+                        self.duplicates.summary = Some(DuplicateSummary {
+                            copies: report.duplicate_file_count(),
+                            reclaimable: self.duplicates.total_reclaimable(report),
+                            group_savings: report
+                                .groups
+                                .iter()
+                                .map(|group| {
+                                    group.savings_keeping(self.duplicates.keeper_for(group))
+                                })
+                                .collect(),
+                        });
+                    }
                     self.duplicates_summary(ui, report);
                     self.duplicates_basket_panel(ui);
                     self.duplicates_body(ui, report);
@@ -665,12 +694,11 @@ impl DiskCleanupApp {
                         );
                         ui.label(
                             RichText::new(format!(
-                                "{} · {} {} · {} · {}",
+                                "{} · {} {} · {}",
                                 crate::app::files_label(self.language(), progress.files_scanned),
                                 format::size(self.language(), progress.bytes_hashed),
                                 self.text(Key::HashedBytes),
-                                i18n::groups_text(self.language(), progress.groups_found),
-                                current
+                                i18n::groups_text(self.language(), progress.groups_found)
                             ))
                             .color(palette.muted)
                             .size(9.5),
@@ -691,6 +719,18 @@ impl DiskCleanupApp {
                             self.cancel_duplicate_search();
                         }
                     });
+                    ui.add_sized(
+                        [ui.available_width(), 16.0],
+                        egui::Label::new(RichText::new(&current).color(palette.muted).size(9.5))
+                            .truncate(),
+                    )
+                    .on_hover_text(
+                        progress
+                            .current_path
+                            .as_ref()
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_default(),
+                    );
                 });
         }
 
@@ -820,41 +860,66 @@ impl DiskCleanupApp {
     fn duplicates_summary(&mut self, ui: &mut egui::Ui, report: &DuplicateReport) {
         let palette = self.palette;
         ui.add_space(6.0);
-        let card_width = ((ui.available_width() - 16.0) / 3.0).max(150.0);
-        ui.horizontal_wrapped(|ui| {
-            duplicate_stat_card(
-                ui,
-                palette,
-                self.text(Key::DuplicateGroups),
-                &i18n::groups_text(self.language(), report.group_count() as u64),
-                &i18n::copies_text(self.language(), report.duplicate_file_count() as u64),
-                palette.text,
-                card_width,
-            );
-            duplicate_stat_card(
-                ui,
-                palette,
-                self.text(Key::Reclaimable),
-                &format::size(self.language(), self.duplicates.total_reclaimable(report)),
-                self.text(Key::NothingPermanentlyDeleted),
-                palette.success,
-                card_width,
-            );
-            duplicate_stat_card(
-                ui,
-                palette,
-                self.text(Key::HashedBytes),
-                &format::size(self.language(), report.bytes_hashed),
-                &i18n::hardlinks_text(self.language(), report.hardlink_duplicates),
-                palette.muted,
-                card_width,
-            );
-        });
+        let columns = if ui.available_width() >= 660.0 { 3 } else { 1 };
+        let card_width = (ui.available_width() - (columns - 1) as f32 * 8.0) / columns as f32;
+        egui::Grid::new("duplicate_summary")
+            .num_columns(columns)
+            .spacing(vec2(8.0, 8.0))
+            .show(ui, |ui| {
+                components::stat_card(
+                    ui,
+                    palette,
+                    self.text(Key::DuplicateGroups),
+                    &i18n::groups_text(self.language(), report.group_count() as u64),
+                    &i18n::copies_text(
+                        self.language(),
+                        self.duplicates
+                            .summary
+                            .as_ref()
+                            .map_or(0, |summary| summary.copies) as u64,
+                    ),
+                    palette.text,
+                    card_width,
+                );
+                if columns == 1 {
+                    ui.end_row();
+                }
+                components::stat_card(
+                    ui,
+                    palette,
+                    self.text(Key::Reclaimable),
+                    &format::size(
+                        self.language(),
+                        self.duplicates
+                            .summary
+                            .as_ref()
+                            .map_or(0, |summary| summary.reclaimable),
+                    ),
+                    self.text(Key::NothingPermanentlyDeleted),
+                    palette.success,
+                    card_width,
+                );
+                if columns == 1 {
+                    ui.end_row();
+                }
+                components::stat_card(
+                    ui,
+                    palette,
+                    self.text(Key::HashedBytes),
+                    &format::size(self.language(), report.bytes_hashed),
+                    &i18n::hardlinks_text(self.language(), report.hardlink_duplicates),
+                    palette.muted,
+                    card_width,
+                );
+                if columns == 1 {
+                    ui.end_row();
+                }
+            });
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
             if components::secondary_button(ui, palette, self.text(Key::SelectAllExceptKeepers))
                 .clicked()
-                && let Err(error) = self.duplicates.select_all_except_keepers()
+                && let Err(error) = self.duplicates.select_all_except_keepers(report)
             {
                 self.notify(error, ToastKind::Error);
             }
@@ -1020,209 +1085,289 @@ impl DiskCleanupApp {
         let selected = &self.duplicates.selected;
         let expanded = &self.duplicates.expanded_groups;
         let mut actions = Vec::new();
+        // Fixed row geometry keeps scrolling stable and avoids laying out off-screen paths.
+        // Only expanded groups contribute file rows; even huge groups render one viewport.
+        const HEADER: f32 = 58.0;
+        const ROW: f32 = 26.0;
+        const FOOTER: f32 = 38.0;
+        const GAP: f32 = 8.0;
         ScrollArea::vertical()
             .id_salt("duplicates_scroll")
             .auto_shrink([false, false])
-            .show(ui, |ui| {
+            .show_viewport(ui, |ui, viewport| {
+                let origin = ui.cursor().min;
+                let width = ui.available_width();
+                let mut offset = 0.0;
                 for (index, group) in report.groups.iter().enumerate() {
-                    let keeper = self.duplicates.keeper_for(group).to_path_buf();
                     let is_expanded = expanded.contains(&group.fingerprint);
-                    let first_name = group
-                        .files
-                        .first()
-                        .map_or_else(String::new, |file| format::file_name(&file.path));
-                    Frame::new()
-                        .fill(palette.surface)
-                        .stroke(Stroke::new(1.0, palette.border))
-                        .corner_radius(tokens::RADIUS_CARD)
-                        .inner_margin(11)
-                        .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(
-                                    RichText::new(icons::DUPLICATES)
-                                        .font(FontId::proportional(13.0))
-                                        .color(palette.accent),
-                                );
-                                ui.label(
-                                    RichText::new(format::shorten_middle(&first_name, 44))
-                                        .font(theme::semibold(12.5))
-                                        .color(palette.text),
-                                );
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} · {} {}",
-                                        i18n::copies_text(self.language(), group.copies() as u64),
-                                        format::size(self.language(), group.logical_size),
-                                        self.text(Key::Each)
-                                    ))
-                                    .color(palette.muted)
-                                    .size(9.5),
-                                );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.label(
+                    let height = HEADER
+                        + if is_expanded {
+                            group.files.len() as f32 * ROW + FOOTER
+                        } else {
+                            0.0
+                        };
+                    let rect =
+                        egui::Rect::from_min_size(origin + vec2(0.0, offset), vec2(width, height));
+                    if offset + height >= viewport.top() && offset <= viewport.bottom() {
+                        ui.painter()
+                            .rect_filled(rect, tokens::RADIUS_CARD, palette.surface);
+                        ui.painter().rect_stroke(
+                            rect,
+                            tokens::RADIUS_CARD,
+                            Stroke::new(1.0, palette.border),
+                            egui::StrokeKind::Inside,
+                        );
+                        let keeper = self.duplicates.keeper_for(group);
+                        let header_rect = egui::Rect::from_min_size(
+                            rect.min + vec2(10.0, 4.0),
+                            vec2(width - 20.0, HEADER - 8.0),
+                        );
+                        ui.scope_builder(
+                            egui::UiBuilder::new()
+                                .id_salt((&group.fingerprint, "header"))
+                                .max_rect(header_rect)
+                                .layout(Layout::top_down(Align::Min)),
+                            |ui| {
+                                let first_name = group
+                                    .files
+                                    .first()
+                                    .map_or_else(String::new, |file| format::file_name(&file.path));
+                                let response = ui.add_sized(
+                                    [ui.available_width(), 25.0],
+                                    Button::new(
                                         RichText::new(format!(
                                             "{} {}",
-                                            self.text(Key::Reclaimable),
-                                            format::size(
-                                                self.language(),
-                                                group.savings_keeping(&keeper)
-                                            )
+                                            if is_expanded {
+                                                icons::CARET_DOWN
+                                            } else {
+                                                icons::CARET_RIGHT
+                                            },
+                                            first_name
                                         ))
-                                        .font(FontId::monospace(10.0))
-                                        .color(palette.success),
-                                    );
-                                });
-                            });
-                            ui.add_space(4.0);
-                            let limit = if is_expanded { group.files.len() } else { 20 };
-                            for file in group.files.iter().take(limit) {
-                                let is_keeper = file.path == keeper;
-                                let mut checked = selected.contains_key(&file.path);
-                                ui.horizontal(|ui| {
-                                    let radio = ui.radio(is_keeper, "");
-                                    radio.widget_info(|| {
-                                        egui::WidgetInfo::selected(
-                                            egui::Role::RadioButton,
-                                            true,
-                                            is_keeper,
-                                            format!(
-                                                "{} {}",
-                                                self.text(Key::Keep),
-                                                file.path.display()
-                                            ),
-                                        )
-                                    });
-                                    if radio.clicked() && !is_keeper {
-                                        actions.push(DuplicateUiAction::SetKeeper(
-                                            index,
-                                            file.path.clone(),
-                                        ));
-                                    }
-                                    radio.on_hover_text(self.text(Key::Keep));
-                                    let path_width = (ui.available_width() - 150.0).max(110.0);
-                                    ui.add_sized(
-                                        [path_width, 21.0],
-                                        egui::Label::new(
-                                            RichText::new(format::shorten_middle(
-                                                &file.path.display().to_string(),
-                                                82,
-                                            ))
-                                            .font(FontId::monospace(9.5))
-                                            .color(
-                                                if is_keeper {
-                                                    palette.text
-                                                } else {
-                                                    palette.muted
-                                                },
-                                            ),
-                                        )
-                                        .truncate()
-                                        .sense(egui::Sense::click()),
+                                        .font(theme::semibold(12.5))
+                                        .color(palette.text),
                                     )
-                                    .on_hover_text(file.path.display().to_string())
-                                    .context_menu(|ui| {
-                                        if ui.button(self.text(Key::Open)).clicked() {
-                                            actions
-                                                .push(DuplicateUiAction::Open(file.path.clone()));
-                                            ui.close();
-                                        }
-                                        if ui.button(self.text(Key::Reveal)).clicked() {
-                                            actions
-                                                .push(DuplicateUiAction::Reveal(file.path.clone()));
-                                            ui.close();
-                                        }
-                                        if ui.button(self.text(Key::CopyPath)).clicked() {
-                                            actions.push(DuplicateUiAction::CopyPath(
-                                                file.path.clone(),
-                                            ));
-                                            ui.close();
-                                        }
-                                    });
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        ui.label(
-                                            RichText::new(format::size(
-                                                self.language(),
-                                                file.size(),
-                                            ))
-                                            .font(FontId::monospace(9.5))
-                                            .color(palette.muted),
-                                        );
-                                        if is_keeper {
-                                            ui.label(
-                                                RichText::new(self.text(Key::Keeper))
-                                                    .color(palette.accent)
-                                                    .size(9.0),
-                                            );
-                                        } else {
-                                            let check = ui.add_sized(
-                                                [22.0, 20.0],
-                                                Checkbox::new(&mut checked, ""),
-                                            );
-                                            check.widget_info(|| {
-                                                egui::WidgetInfo::labeled(
-                                                    egui::Role::CheckBox,
-                                                    true,
-                                                    format!(
-                                                        "{} {}",
-                                                        self.text(Key::MoveToTrash),
-                                                        file.path.display()
-                                                    ),
-                                                )
-                                            });
-                                            if check.changed() {
-                                                actions.push(DuplicateUiAction::Toggle(
-                                                    index,
-                                                    file.clone(),
-                                                    checked,
-                                                ));
-                                            }
-                                        }
-                                    });
-                                });
-                            }
-                            if group.files.len() > 20 {
-                                let label = if is_expanded {
-                                    format!("{} ({})", self.text(Key::ShowLess), group.files.len())
-                                } else {
-                                    format!(
-                                        "{} +{}",
-                                        self.text(Key::ShowAllCopies),
-                                        group.files.len() - 20
-                                    )
-                                };
-                                if components::chip(ui, palette, &label, None).clicked() {
+                                    .frame(false)
+                                    .truncate(),
+                                );
+                                if response.clicked() {
                                     actions.push(DuplicateUiAction::ToggleExpanded(
                                         group.fingerprint.clone(),
                                     ));
                                 }
+                                response.on_hover_text(&first_name);
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(format!(
+                                            "{} · {} {} · {} {}",
+                                            i18n::copies_text(
+                                                self.language(),
+                                                group.copies() as u64
+                                            ),
+                                            format::size(self.language(), group.logical_size),
+                                            self.text(Key::Each),
+                                            self.text(Key::Reclaimable),
+                                            format::size(
+                                                self.language(),
+                                                self.duplicates
+                                                    .summary
+                                                    .as_ref()
+                                                    .and_then(|summary| summary
+                                                        .group_savings
+                                                        .get(index))
+                                                    .copied()
+                                                    .unwrap_or(0)
+                                            )
+                                        ))
+                                        .size(10.0)
+                                        .color(palette.muted),
+                                    )
+                                    .truncate(),
+                                );
+                            },
+                        );
+                        if is_expanded {
+                            let first =
+                                (((viewport.top() - offset - HEADER) / ROW).floor().max(0.0)
+                                    as usize)
+                                    .min(group.files.len());
+                            let last = (((viewport.bottom() - offset - HEADER) / ROW)
+                                .ceil()
+                                .max(0.0) as usize)
+                                .min(group.files.len());
+                            for (file_index, file) in
+                                group.files.iter().enumerate().take(last).skip(first)
+                            {
+                                let row_rect = egui::Rect::from_min_size(
+                                    rect.min + vec2(10.0, HEADER + file_index as f32 * ROW),
+                                    vec2(width - 20.0, ROW),
+                                );
+                                ui.scope_builder(
+                                    egui::UiBuilder::new()
+                                        .id_salt((&group.fingerprint, file_index))
+                                        .max_rect(row_rect)
+                                        .layout(Layout::top_down(Align::Min)),
+                                    |ui| {
+                                        let is_keeper = file.path == keeper;
+                                        let mut checked = selected.contains_key(&file.path);
+                                        ui.horizontal(|ui| {
+                                            let radio = ui.radio(is_keeper, "");
+                                            radio.widget_info(|| {
+                                                egui::WidgetInfo::selected(
+                                                    egui::Role::RadioButton,
+                                                    true,
+                                                    is_keeper,
+                                                    format!(
+                                                        "{} {}",
+                                                        self.text(Key::Keep),
+                                                        file.path.display()
+                                                    ),
+                                                )
+                                            });
+                                            if radio.clicked() && !is_keeper {
+                                                actions.push(DuplicateUiAction::SetKeeper(
+                                                    index,
+                                                    file.path.clone(),
+                                                ));
+                                            }
+                                            radio.on_hover_text(self.text(Key::Keep));
+                                            let path_width =
+                                                (ui.available_width() - 150.0).max(0.0);
+                                            ui.add_sized(
+                                                [path_width, 21.0],
+                                                egui::Label::new(
+                                                    RichText::new(format::shorten_middle(
+                                                        &file.path.display().to_string(),
+                                                        82,
+                                                    ))
+                                                    .font(FontId::monospace(9.5))
+                                                    .color(if is_keeper {
+                                                        palette.text
+                                                    } else {
+                                                        palette.muted
+                                                    }),
+                                                )
+                                                .truncate()
+                                                .sense(egui::Sense::click()),
+                                            )
+                                            .on_hover_text(file.path.display().to_string())
+                                            .context_menu(|ui| {
+                                                if ui.button(self.text(Key::Open)).clicked() {
+                                                    actions.push(DuplicateUiAction::Open(
+                                                        file.path.clone(),
+                                                    ));
+                                                    ui.close();
+                                                }
+                                                if ui.button(self.text(Key::Reveal)).clicked() {
+                                                    actions.push(DuplicateUiAction::Reveal(
+                                                        file.path.clone(),
+                                                    ));
+                                                    ui.close();
+                                                }
+                                                if ui.button(self.text(Key::CopyPath)).clicked() {
+                                                    actions.push(DuplicateUiAction::CopyPath(
+                                                        file.path.clone(),
+                                                    ));
+                                                    ui.close();
+                                                }
+                                            });
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Center),
+                                                |ui| {
+                                                    ui.label(
+                                                        RichText::new(format::size(
+                                                            self.language(),
+                                                            file.size(),
+                                                        ))
+                                                        .font(FontId::monospace(9.5))
+                                                        .color(palette.muted),
+                                                    );
+                                                    if is_keeper {
+                                                        ui.label(
+                                                            RichText::new(self.text(Key::Keeper))
+                                                                .color(palette.accent)
+                                                                .size(9.0),
+                                                        );
+                                                    } else {
+                                                        let check = ui.add_sized(
+                                                            [22.0, 20.0],
+                                                            Checkbox::new(&mut checked, ""),
+                                                        );
+                                                        check.widget_info(|| {
+                                                            egui::WidgetInfo::labeled(
+                                                                egui::Role::CheckBox,
+                                                                true,
+                                                                format!(
+                                                                    "{} {}",
+                                                                    self.text(Key::MoveToTrash),
+                                                                    file.path.display()
+                                                                ),
+                                                            )
+                                                        });
+                                                        if check.changed() {
+                                                            actions.push(
+                                                                DuplicateUiAction::Toggle(
+                                                                    index,
+                                                                    file.clone(),
+                                                                    checked,
+                                                                ),
+                                                            );
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                        });
+                                    },
+                                );
                             }
-                            if group.files.len() >= 2 {
-                                ui.add_space(2.0);
-                                if components::secondary_button(
-                                    ui,
-                                    palette,
-                                    self.text(Key::SelectRest),
-                                )
-                                .clicked()
-                                {
-                                    actions.push(DuplicateUiAction::SelectRest(index));
-                                }
+                            let footer_rect = egui::Rect::from_min_size(
+                                rect.min + vec2(10.0, height - FOOTER),
+                                vec2(width - 20.0, FOOTER),
+                            );
+                            if footer_rect.intersects(ui.clip_rect()) {
+                                ui.scope_builder(
+                                    egui::UiBuilder::new()
+                                        .id_salt((&group.fingerprint, "footer"))
+                                        .max_rect(footer_rect)
+                                        .layout(Layout::top_down(Align::Min)),
+                                    |ui| {
+                                        if components::secondary_button(
+                                            ui,
+                                            palette,
+                                            self.text(Key::SelectRest),
+                                        )
+                                        .clicked()
+                                        {
+                                            actions.push(DuplicateUiAction::SelectRest(index));
+                                        }
+                                    },
+                                );
                             }
-                        });
-                    ui.add_space(6.0);
+                        }
+                    }
+                    offset += height + GAP;
                 }
+                ui.advance_cursor_after_rect(egui::Rect::from_min_size(
+                    origin,
+                    vec2(width, offset),
+                ));
                 if !report.issues.is_empty() {
-                    ui.add_space(4.0);
                     components::section_label(ui, palette, self.text(Key::CleanupIssues));
                     for issue in report.issues.iter().take(10) {
-                        ui.label(
-                            RichText::new(format!("{}: {}", issue.path.display(), issue.message))
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!(
+                                    "{}: {}",
+                                    issue.path.display(),
+                                    issue.message
+                                ))
                                 .color(palette.muted)
                                 .size(10.0),
+                            )
+                            .truncate(),
                         );
                     }
                 }
-                ui.add_space(8.0);
             });
 
         let context = ui.ctx().clone();
@@ -1441,34 +1586,4 @@ enum DuplicateUiAction {
     Open(PathBuf),
     Reveal(PathBuf),
     CopyPath(PathBuf),
-}
-
-fn duplicate_stat_card(
-    ui: &mut egui::Ui,
-    palette: crate::ui::theme::Palette,
-    title: &str,
-    value: &str,
-    detail: &str,
-    color: Color32,
-    width: f32,
-) {
-    Frame::new()
-        .fill(palette.surface)
-        .stroke(Stroke::new(1.0, palette.border))
-        .corner_radius(tokens::RADIUS_CARD)
-        .inner_margin(10)
-        .show(ui, |ui| {
-            ui.set_width(width - 20.0);
-            ui.label(
-                RichText::new(title.to_uppercase())
-                    .color(palette.muted)
-                    .size(9.5),
-            );
-            ui.label(
-                RichText::new(value)
-                    .font(theme::semibold(16.0))
-                    .color(color),
-            );
-            ui.label(RichText::new(detail).color(palette.muted).size(9.5));
-        });
 }
