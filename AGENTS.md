@@ -275,6 +275,24 @@ Windows workspace cross-check and locked Linux release GUI build pass.
 Manual visual acceptance and pixel snapshots remain open; see `docs/plan.md`
 and `docs/ui.md`.
 
+Parallel read operations complete (2026-10-28): scanning now reads metadata in
+bounded parallel batches alongside parallel directory traversal; duplicate
+collection reads metadata in batches and hashes files concurrently across all
+eligible size groups. Per-operation Rayon pools use available CPUs capped at 8
+by default, support 1–32 manual workers (1 = sequential), and bound hashing to
+one open file and a 64 KiB buffer per worker. EN/RU Settings → Scanning → Worker
+threads persists and applies to new jobs; CLI scan/largest/duplicates share
+`--threads` (0 = automatic). Concurrent jobs have separate pools. Candidate
+limits, deterministic hardlink accounting, cancellation and the audited cleanup
+pipeline remain intact. Regression tests compare serial/parallel reports and
+progress, candidate limits and active hashing cancellation; GUI tests cover
+selection/persistence and CLI tests cover flags/ranges. The synthetic release
+benchmark compares worker counts with warm-cache medians (4,160 files): 1 vs 8
+workers = 23 vs 7 ms scan, 177 vs 51 ms duplicates. These are not comparisons
+against the previous release or predictions for HDD/cold-cache performance.
+Verification: fmt, workspace clippy -D warnings, all 123 tests (36 GUI), Windows
+cross-check and locked Linux workspace release build pass. No new dependencies.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**

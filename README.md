@@ -70,6 +70,28 @@ explanation and a risk level.
 - Scan evidence is retained through selection; both copies and keepers are
   revalidated and rehashed before cleanup.
 
+Scanning reads directory metadata in bounded parallel batches; duplicate discovery
+also hashes candidate files concurrently across size groups. **Settings → Scanning
+→ Worker threads** controls both operations: Automatic uses the available CPU
+parallelism up to 8 workers; 1 runs sequentially; manual values range from 1 to 32.
+Preferences persist and apply to new jobs without restarting. The limit is per
+operation, so simultaneous scan/duplicate jobs each have their own pool. Hashing
+opens at most one file per worker and uses a 64 KiB read buffer per worker. HDDs
+may benefit from fewer workers; speedup depends on storage and the workload.
+CLI `scan`, `largest`, and `duplicates` accept `--threads 0|1|…|32` with the same
+semantics. For example:
+
+```bash
+cargo run -p diskclean-cli -- scan . --threads 4 --json
+cargo run -p diskclean-cli -- duplicates . --threads 4 --min-size 1M --json
+cargo run -p diskclean-core --example synthetic_scan --release
+```
+
+The synthetic benchmark compares 1, 4, and automatic workers using medians of
+five warm-cache runs, including worker-pool startup. It covers directory scanning,
+prefix-only matching, and full-file hashing; it does not predict cold-cache or
+HDD performance.
+
 The UI is available in English and Russian at runtime. The system locale is
 used by default when detectable. There is no telemetry or network access.
 

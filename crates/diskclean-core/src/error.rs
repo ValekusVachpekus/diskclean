@@ -8,6 +8,8 @@ use serde::{Serialize, Serializer};
 /// A fatal error that prevents a scan from producing a usable tree.
 #[derive(Debug, thiserror::Error)]
 pub enum ScanError {
+    #[error("cannot start worker threads: {0}")]
+    Workers(#[source] rayon::ThreadPoolBuildError),
     #[error("cannot access root '{path}': {source}")]
     Root {
         path: PathBuf,

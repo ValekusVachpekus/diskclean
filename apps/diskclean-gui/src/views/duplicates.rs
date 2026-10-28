@@ -310,6 +310,7 @@ impl DiskCleanupApp {
             self.duplicates.reset_for_new_root();
         }
         let options = DuplicateOptions {
+            threads: self.settings.worker_threads,
             min_size,
             prefix_bytes: 16 * 1024,
             skip_hidden: self.settings.skip_hidden,

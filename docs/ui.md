@@ -275,3 +275,14 @@ apps/diskclean-gui/src/
   views/                 overview, analyze, cleanup, duplicates
   treemap.rs             pure treemap layout
 ```
+
+### Worker preferences (2026-10-28)
+
+Settings → Scanning → Worker threads is localized in EN/RU and persists with
+other preferences. Automatic displays its effective worker count (available CPU
+parallelism capped at 8); manual choices are 1–32, with 1 meaning sequential.
+The setting applies to new scan/duplicate jobs without restarting. Existing
+jobs keep their initial count. Explanatory text notes that HDDs may benefit
+from fewer workers. The selector has an accessible label; headless interaction
+tests cover switching manual/automatic in both languages, and modal bounds
+remain covered at 600×480.

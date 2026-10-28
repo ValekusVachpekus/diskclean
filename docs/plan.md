@@ -37,6 +37,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | U3 polish and quality | In progress | automated contrast, high-DPI, interaction, 100k-node headless rendering and Windows target checks pass; manual visual/performance smoke, snapshots and screenshots remain |
 | Phase 2 safe cleanup | Complete | rules, discovery, protected paths, revalidation, trash-only apply, audit log, GUI and CLI |
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
+| Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Phase 4+ | Not started | applications/games, similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -459,6 +460,28 @@ backend covers success/error/cancel/changed-file; system commands never run.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-28 (parallel scan and duplicate discovery): Added per-operation Rayon
+  pools; automatic concurrency uses available CPUs capped at 8, manual settings
+  accept 1–32 (1 is sequential). Scanner retains parallel directory traversal
+  and now reads metadata in ordered batches of up to 256 entries. Duplicate
+  discovery uses parallel metadata batches with serial hardlink/limit accounting,
+  then schedules prefix and full-file hashing across all eligible size groups.
+  Binary hash keys avoid per-file hex-string allocation. Each hashing worker
+  uses one open file and a 64 KiB buffer; no nested worker pools are created.
+  GUI EN/RU settings persist and apply to the next scan/search without restarting;
+  CLI scan/largest/duplicates share `--threads` (0 = automatic). Cleanup mutation
+  continues through the existing audited pipeline. Added serial/parallel full
+  report equivalence, candidate-limit/hardlink/progress checks, active hashing
+  cancellation, CLI count validation, and GUI setting interaction/persistence.
+  Extended the release synthetic benchmark to 4,160 files, prefix-only and full
+  hashing, five interleaved measured runs after warmup, including pool startup.
+  Local warm-cache medians: 1 worker = 23 ms scan / 177 ms duplicates; automatic
+  8 workers = 7 ms / 51 ms. These compare the new implementation's worker counts,
+  not the previous release, and are not cold-cache/HDD results.
+  Verification: fmt, workspace clippy with -D warnings, all 123 workspace tests
+  (36 GUI), Windows cross-check and locked Linux workspace release build pass.
+  Real-display and interactive Windows acceptance gates remain open.
 
 - 2026-10-28 (U3 shell and layout consistency): Unified Cleanup/Duplicates
   headings and shared modal sizing/path-size rows. Navigation puts tools first

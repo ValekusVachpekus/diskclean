@@ -462,6 +462,7 @@ fn settings_round_trip_keeps_ui_state() {
         theme: ThemeMode::Light,
         language: Language::Russian,
         skip_hidden: true,
+        worker_threads: 4,
         cross_filesystems: true,
         inspector_open: false,
         last_path: "/virtual/fixture".to_owned(),
@@ -477,6 +478,7 @@ fn settings_round_trip_keeps_ui_state() {
     assert_eq!(loaded.theme, ThemeMode::Light);
     assert_eq!(loaded.language, Language::Russian);
     assert!(loaded.skip_hidden);
+    assert_eq!(loaded.worker_threads, 4);
     assert!(loaded.cross_filesystems);
     assert!(!loaded.inspector_open);
     assert_eq!(loaded.last_path, "/virtual/fixture");
@@ -485,6 +487,7 @@ fn settings_round_trip_keeps_ui_state() {
     assert_eq!(loaded.inspector_width, 320.0);
 
     settings.reset_preferences();
+    assert_eq!(settings.worker_threads, 0);
     assert_eq!(settings.theme, ThemeMode::System);
     assert_eq!(settings.language, Language::System);
     assert_eq!(settings.last_path, "/virtual/fixture");
@@ -1292,5 +1295,36 @@ fn cleanup_cards_and_basket_fit_long_localized_rule_text() {
                 "basket action: {action:?}"
             );
         }
+    }
+}
+
+#[test]
+fn settings_select_worker_count_in_both_languages() {
+    for language in [Language::English, Language::Russian] {
+        let mut app = test_app(english_settings(), false);
+        app.settings.language = language;
+        app.settings_open = true;
+        let mut harness = Harness::builder()
+            .with_size(Vec2::new(900.0, 820.0))
+            .with_accessibility_check(false)
+            .with_context_setup(theme::install_fonts)
+            .build_ui_state(
+                |ui, app: &mut DiskCleanupApp| app.settings_dialog(ui.ctx()),
+                app,
+            );
+        harness.run();
+        let threads_label = language.text(crate::i18n::Key::WorkerThreads);
+        harness.get_by_label(threads_label).click();
+        harness.run();
+        harness.get_by_label("4").click();
+        harness.run();
+        assert_eq!(harness.state().settings.worker_threads, 4);
+        harness.get_by_label(threads_label).click();
+        harness.run();
+        harness
+            .get_by_label(language.text(crate::i18n::Key::AutomaticThreads))
+            .click();
+        harness.run();
+        assert_eq!(harness.state().settings.worker_threads, 0);
     }
 }

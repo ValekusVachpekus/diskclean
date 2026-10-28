@@ -105,8 +105,8 @@ struct ScanBase {
     #[arg(long)]
     follow_symlinks: bool,
 
-    /// Number of scanner worker threads.
-    #[arg(long)]
+    /// Worker threads: 0 = automatic (up to 8), 1 = sequential, maximum 32.
+    #[arg(long, value_parser = parse_threads)]
     threads: Option<usize>,
 }
 
@@ -171,6 +171,9 @@ struct CleanArgs {
 
 #[derive(Debug, Args)]
 struct DuplicatesArgs {
+    /// Worker threads: 0 = automatic (up to 8), 1 = sequential, maximum 32.
+    #[arg(long, value_parser = parse_threads)]
+    threads: Option<usize>,
     /// Directory or volume to search.
     #[arg(default_value = ".")]
     path: PathBuf,
@@ -232,8 +235,6 @@ fn run() -> Result<()> {
 }
 
 fn run_scan(args: ScanArgs) -> Result<()> {
-    configure_threads(args.base.threads)?;
-
     let control = ScanControl::new();
     install_cancel_handler(control.clone());
     let progress = ProgressReporter::start(control.clone());
@@ -252,8 +253,6 @@ fn run_scan(args: ScanArgs) -> Result<()> {
 }
 
 fn run_largest(args: LargestArgs) -> Result<()> {
-    configure_threads(args.base.threads)?;
-
     let control = ScanControl::new();
     install_cancel_handler(control.clone());
     let progress = ProgressReporter::start(control.clone());
@@ -500,6 +499,7 @@ fn run_clean(args: CleanArgs) -> Result<()> {
 fn run_duplicates(args: DuplicatesArgs) -> Result<()> {
     let min_size = parse_size(&args.min_size).map_err(anyhow::Error::msg)?;
     let options = DuplicateOptions {
+        threads: args.threads.unwrap_or(0),
         min_size,
         prefix_bytes: args.prefix_bytes,
         skip_hidden: args.skip_hidden,
@@ -621,6 +621,7 @@ fn protected_paths(
 
 fn scan_options(base: &ScanBase, top: usize) -> ScanOptions {
     ScanOptions {
+        threads: base.threads.unwrap_or(0),
         cross_filesystems: base.cross_filesystems,
         max_depth: base.max_depth,
         exclude: base.exclude.clone(),
@@ -628,20 +629,6 @@ fn scan_options(base: &ScanBase, top: usize) -> ScanOptions {
         top_files: top,
         follow_symlinks: base.follow_symlinks,
     }
-}
-
-fn configure_threads(threads: Option<usize>) -> Result<()> {
-    let Some(threads) = threads else {
-        return Ok(());
-    };
-    if threads == 0 {
-        bail!("--threads must be at least 1");
-    }
-
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build_global()
-        .map_err(|error| anyhow::anyhow!("cannot configure scanner threads: {error}"))
 }
 
 fn install_cancel_handler(control: ScanControl) {
@@ -872,4 +859,14 @@ fn shorten(value: &str, max_chars: usize) -> String {
         .rev()
         .collect();
     format!("...{tail}")
+}
+
+fn parse_threads(value: &str) -> Result<usize, String> {
+    let count: usize = value
+        .parse()
+        .map_err(|_| "expected a thread count from 0 to 32".to_owned())?;
+    if count > diskclean_core::parallel::MAX_WORKER_THREADS {
+        return Err("expected a thread count from 0 to 32".to_owned());
+    }
+    Ok(count)
 }

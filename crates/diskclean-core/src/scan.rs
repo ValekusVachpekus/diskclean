@@ -18,6 +18,9 @@ use crate::tree::{ExtensionTotals, Node, NodeId, NodeKind, ROOT_ID, ScanStats, T
 /// Options controlling a scan.
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
+    /// Worker threads per operation: 0 = automatic (up to 8), 1 = sequential.
+    /// Explicit values are capped at [`crate::parallel::MAX_WORKER_THREADS`].
+    pub threads: usize,
     /// Follow mount points and scan across filesystem boundaries.
     pub cross_filesystems: bool,
     /// Maximum directory depth. `Some(0)` scans the root directory only.
@@ -35,6 +38,7 @@ pub struct ScanOptions {
 impl Default for ScanOptions {
     fn default() -> Self {
         Self {
+            threads: 0,
             cross_filesystems: false,
             max_depth: None,
             exclude: Vec::new(),
@@ -59,7 +63,20 @@ pub fn scan(
         return Err(ScanError::FollowSymlinksUnsupported);
     }
 
-    let requested = root.as_ref();
+    if control.is_cancelled() {
+        return Err(ScanError::Cancelled);
+    }
+    let pool = crate::parallel::pool(options.threads).map_err(ScanError::Workers)?;
+    let root = root.as_ref();
+    pool.install(|| scan_inner(root, options, control))
+}
+
+fn scan_inner(
+    root: &Path,
+    options: &ScanOptions,
+    control: &ScanControl,
+) -> Result<Tree, ScanError> {
+    let requested = root;
     let root_path = std::path::absolute(requested).map_err(|source| ScanError::Root {
         path: requested.to_path_buf(),
         source,
@@ -185,7 +202,7 @@ impl Scanner<'_> {
         self.control.record_directory();
         self.control.set_current(path);
 
-        let read_dir = match check_path_components(path).and_then(|()| fs::read_dir(path)) {
+        let mut read_dir = match check_path_components(path).and_then(|()| fs::read_dir(path)) {
             Ok(read_dir) => read_dir,
             Err(error) => {
                 self.record_issue(&mut raw, path, "read directory", &error);
@@ -195,75 +212,102 @@ impl Scanner<'_> {
 
         let mut child_dirs: Vec<(PathBuf, OsString, FileMeta)> = Vec::new();
 
-        for entry_result in read_dir {
-            if self.control.is_cancelled() {
+        loop {
+            // Keep directory enumeration and its handle on this worker. Only
+            // independent metadata calls run in parallel; merge in entry order.
+            let batch: Vec<_> = read_dir.by_ref().take(256).collect();
+            if batch.is_empty() || self.control.is_cancelled() {
                 break;
             }
-
-            let entry = match entry_result {
-                Ok(entry) => entry,
-                Err(error) => {
-                    self.record_issue(&mut raw, path, "read directory entry", &error);
-                    continue;
+            let entries: Vec<_> = batch
+                .into_par_iter()
+                .with_min_len(32)
+                .map(|result| {
+                    result.map(|entry| {
+                        let path = entry.path();
+                        let meta = if self.control.is_cancelled() || self.is_excluded(&path) {
+                            None
+                        } else {
+                            Some(file_meta::metadata(&path))
+                        };
+                        (entry, meta)
+                    })
+                })
+                .collect();
+            for entry_result in entries {
+                if self.control.is_cancelled() {
+                    break;
                 }
-            };
 
-            let entry_path = entry.path();
-            let entry_name = entry.file_name();
-
-            if self.is_excluded(&entry_path) {
-                raw.skipped_excluded = raw.skipped_excluded.saturating_add(1);
-                continue;
-            }
-
-            let entry_meta = match file_meta::metadata(&entry_path) {
-                Ok(meta) => meta,
-                Err(error) => {
-                    self.record_issue(&mut raw, &entry_path, "read metadata", &error);
-                    continue;
-                }
-            };
-
-            if self.options.skip_hidden && is_hidden_entry(&entry_name, &entry_meta) {
-                raw.skipped_excluded = raw.skipped_excluded.saturating_add(1);
-                continue;
-            }
-
-            match entry_meta.kind {
-                FileKind::Directory => {
-                    if self.options.max_depth.is_some_and(|max| depth >= max) {
-                        raw.skipped_depth = raw.skipped_depth.saturating_add(1);
+                let (entry, metadata) = match entry_result {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        self.record_issue(&mut raw, path, "read directory entry", &error);
                         continue;
                     }
-                    if !self.options.cross_filesystems
-                        && (entry_meta.dev != self.root_dev || self.mounts.contains(&entry_path))
-                    {
-                        raw.skipped_mounts = raw.skipped_mounts.saturating_add(1);
+                };
+
+                let entry_path = entry.path();
+                let entry_name = entry.file_name();
+
+                if self.is_excluded(&entry_path) {
+                    raw.skipped_excluded = raw.skipped_excluded.saturating_add(1);
+                    continue;
+                }
+
+                let Some(metadata) = metadata else {
+                    continue;
+                };
+                let entry_meta = match metadata {
+                    Ok(meta) => meta,
+                    Err(error) => {
+                        self.record_issue(&mut raw, &entry_path, "read metadata", &error);
                         continue;
                     }
-                    child_dirs.push((entry_path, entry_name, entry_meta));
+                };
+
+                if self.options.skip_hidden && is_hidden_entry(&entry_name, &entry_meta) {
+                    raw.skipped_excluded = raw.skipped_excluded.saturating_add(1);
+                    continue;
                 }
-                FileKind::File => {
-                    self.control
-                        .record_file(entry_meta.logical_size, entry_meta.allocated_size);
-                    raw.entries.push(RawEntry {
-                        name: entry_name,
-                        meta: entry_meta,
-                    });
-                }
-                FileKind::Symlink => {
-                    self.control.record_symlink();
-                    raw.entries.push(RawEntry {
-                        name: entry_name,
-                        meta: entry_meta,
-                    });
-                }
-                FileKind::Other => {
-                    self.control.record_other();
-                    raw.entries.push(RawEntry {
-                        name: entry_name,
-                        meta: entry_meta,
-                    });
+
+                match entry_meta.kind {
+                    FileKind::Directory => {
+                        if self.options.max_depth.is_some_and(|max| depth >= max) {
+                            raw.skipped_depth = raw.skipped_depth.saturating_add(1);
+                            continue;
+                        }
+                        if !self.options.cross_filesystems
+                            && (entry_meta.dev != self.root_dev
+                                || self.mounts.contains(&entry_path))
+                        {
+                            raw.skipped_mounts = raw.skipped_mounts.saturating_add(1);
+                            continue;
+                        }
+                        child_dirs.push((entry_path, entry_name, entry_meta));
+                    }
+                    FileKind::File => {
+                        self.control
+                            .record_file(entry_meta.logical_size, entry_meta.allocated_size);
+                        raw.entries.push(RawEntry {
+                            name: entry_name,
+                            meta: entry_meta,
+                        });
+                    }
+                    FileKind::Symlink => {
+                        self.control.record_symlink();
+                        raw.entries.push(RawEntry {
+                            name: entry_name,
+                            meta: entry_meta,
+                        });
+                    }
+                    FileKind::Other => {
+                        self.control.record_other();
+                        raw.entries.push(RawEntry {
+                            name: entry_name,
+                            meta: entry_meta,
+                        });
+                    }
                 }
             }
         }

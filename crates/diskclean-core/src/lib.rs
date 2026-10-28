@@ -9,6 +9,7 @@
 pub mod duplicates;
 pub mod error;
 pub mod format;
+pub mod parallel;
 pub mod progress;
 pub mod report;
 pub mod scan;

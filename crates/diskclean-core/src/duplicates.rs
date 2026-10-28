@@ -23,6 +23,7 @@ use diskclean_platform::{
     FileKind, FileMeta, MountPoints, check_path_components, metadata, open_regular_file,
     opened_identity,
 };
+use rayon::prelude::*;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -34,6 +35,9 @@ const READ_BUFFER: usize = 64 * 1024;
 /// Options for [`find_duplicates`].
 #[derive(Debug, Clone)]
 pub struct DuplicateOptions {
+    /// Worker threads per operation: 0 = automatic (up to 8), 1 = sequential.
+    /// Explicit values are capped at [`crate::parallel::MAX_WORKER_THREADS`].
+    pub threads: usize,
     /// Ignore files smaller than this many logical bytes.
     pub min_size: u64,
     /// Number of leading bytes hashed before a full-file hash.
@@ -49,6 +53,7 @@ pub struct DuplicateOptions {
 impl Default for DuplicateOptions {
     fn default() -> Self {
         Self {
+            threads: 0,
             min_size: 1,
             prefix_bytes: 16 * 1024,
             skip_hidden: false,
@@ -177,6 +182,8 @@ pub struct DuplicateProgress {
 /// Fatal duplicate-scan failures.
 #[derive(Debug, Error)]
 pub enum DuplicateError {
+    #[error("cannot start worker threads: {0}")]
+    Workers(#[source] rayon::ThreadPoolBuildError),
     #[error("cannot access root '{path}': {source}")]
     Root {
         path: PathBuf,
@@ -350,8 +357,21 @@ pub fn find_duplicates(
     options: &DuplicateOptions,
     control: &DuplicateControl,
 ) -> Result<DuplicateReport, DuplicateError> {
+    if control.is_cancelled() {
+        return Err(DuplicateError::Cancelled);
+    }
+    let pool = crate::parallel::pool(options.threads).map_err(DuplicateError::Workers)?;
+    let root = root.as_ref();
+    pool.install(|| find_duplicates_inner(root, options, control))
+}
+
+fn find_duplicates_inner(
+    root: &Path,
+    options: &DuplicateOptions,
+    control: &DuplicateControl,
+) -> Result<DuplicateReport, DuplicateError> {
     let started = Instant::now();
-    let requested = root.as_ref();
+    let requested = root;
     let root_path = std::path::absolute(requested).map_err(|source| DuplicateError::Root {
         path: requested.to_path_buf(),
         source,
@@ -440,63 +460,79 @@ fn collect_candidates(
         }
         paths.sort();
 
-        for path in paths {
-            if cancellation(control) {
-                return Err(DuplicateError::Cancelled);
-            }
-            let meta = match metadata(&path) {
-                Ok(meta) => meta,
-                Err(error) => {
-                    push_issue(control, issues, &path, "read metadata", &error);
+        for batch in paths.chunks(256) {
+            let entries: Vec<_> = batch
+                .par_iter()
+                .with_min_len(32)
+                .map(|path| {
+                    if control.is_cancelled() {
+                        return None;
+                    }
+                    Some((path.clone(), metadata(path)))
+                })
+                .collect();
+            for (path, meta) in entries.into_iter().flatten() {
+                if cancellation(control) {
+                    return Err(DuplicateError::Cancelled);
+                }
+                let meta = match meta {
+                    Ok(meta) => meta,
+                    Err(error) => {
+                        push_issue(control, issues, &path, "read metadata", &error);
+                        continue;
+                    }
+                };
+                if options.skip_hidden && is_hidden(&path, &meta) {
                     continue;
                 }
-            };
-            if options.skip_hidden && is_hidden(&path, &meta) {
-                continue;
-            }
 
-            match meta.kind {
-                FileKind::Directory => {
-                    if options.cross_filesystems
-                        || (meta.dev == root_dev && !mounts.contains(&path))
-                    {
-                        stack.push(path);
+                match meta.kind {
+                    FileKind::Directory => {
+                        if options.cross_filesystems
+                            || (meta.dev == root_dev && !mounts.contains(&path))
+                        {
+                            stack.push(path);
+                        }
                     }
-                }
-                FileKind::File => {
-                    if meta.logical_size == 0 || meta.logical_size < options.min_size {
-                        continue;
-                    }
-                    if meta.nlink > 1
-                        && meta.dev != 0
-                        && meta.ino != 0
-                        && !seen_hardlinks.insert((meta.dev, meta.ino))
-                    {
-                        hardlink_duplicates = hardlink_duplicates.saturating_add(1);
-                        continue;
-                    }
-                    if candidates.len() >= options.max_files {
-                        if !limit_reported {
-                            limit_reported = true;
-                            issues.push(DuplicateIssue {
-                                path: directory.clone(),
-                                message: format!(
+                    FileKind::File => {
+                        if meta.logical_size == 0 || meta.logical_size < options.min_size {
+                            continue;
+                        }
+                        if meta.nlink > 1
+                            && meta.dev != 0
+                            && meta.ino != 0
+                            && !seen_hardlinks.insert((meta.dev, meta.ino))
+                        {
+                            hardlink_duplicates = hardlink_duplicates.saturating_add(1);
+                            continue;
+                        }
+                        if candidates.len() >= options.max_files {
+                            if !limit_reported {
+                                limit_reported = true;
+                                let message = format!(
                                     "candidate limit of {} files reached; results may be incomplete",
                                     options.max_files
-                                ),
-                            });
-                            control.record_error();
+                                );
+                                issues.push(DuplicateIssue {
+                                    path: directory.clone(),
+                                    message,
+                                });
+                                control.record_error();
+                            }
+                            continue;
                         }
-                        continue;
+                        control.record_scanned();
+                        candidates.push(Candidate::from_meta(path, meta));
                     }
-                    control.record_scanned();
-                    candidates.push(Candidate::from_meta(path, meta));
+                    FileKind::Symlink | FileKind::Other => {}
                 }
-                FileKind::Symlink | FileKind::Other => {}
             }
         }
     }
 
+    if control.is_cancelled() {
+        return Err(DuplicateError::Cancelled);
+    }
     Ok((candidates, hardlink_duplicates))
 }
 
@@ -511,78 +547,88 @@ fn hash_candidates(
         by_size.entry(candidate.size).or_default().push(candidate);
     }
 
-    let mut groups = Vec::new();
-    for (_, size_group) in by_size {
-        if size_group.len() < 2 {
-            continue;
-        }
-        let mut by_prefix: HashMap<String, Vec<PrefixRecord>> = HashMap::new();
-        for candidate in size_group {
-            if cancellation(control) {
-                return Err(DuplicateError::Cancelled);
+    // Schedule files across all size buckets together. A workload containing
+    // many pairs of different sizes must still use the entire worker pool.
+    let eligible: Vec<_> = by_size
+        .into_values()
+        .filter(|files| files.len() >= 2)
+        .flatten()
+        .collect();
+    let prefixes: Vec<_> = eligible
+        .into_par_iter()
+        .map(|candidate| {
+            if control.is_cancelled() {
+                return (candidate, Err("cancelled".to_owned()), false);
             }
             let prefix_len = options
                 .prefix_bytes
                 .min(usize::try_from(candidate.size).unwrap_or(usize::MAX));
-            let complete = prefix_len == usize::try_from(candidate.size).unwrap_or(usize::MAX);
-            match hash_prefix(&candidate, prefix_len, control) {
-                Ok(hash) => {
-                    by_prefix
-                        .entry(hash.to_hex().to_string())
-                        .or_default()
-                        .push(PrefixRecord {
-                            candidate,
-                            hash,
-                            complete,
-                        });
-                }
-                Err(error) => {
-                    if control.is_cancelled() {
-                        return Err(DuplicateError::Cancelled);
-                    }
-                    push_hash_issue(control, issues, &candidate.path, error);
-                }
-            }
-        }
+            let complete = prefix_len as u64 == candidate.size;
+            let hash = hash_prefix(&candidate, prefix_len, control);
+            (candidate, hash, complete)
+        })
+        .collect();
+    if control.is_cancelled() {
+        return Err(DuplicateError::Cancelled);
+    }
 
-        for (_, records) in by_prefix {
-            if records.len() < 2 {
-                continue;
-            }
-            if records.iter().all(|record| record.complete) {
-                let fingerprint = records[0].hash.to_hex().to_string();
-                groups.push(build_group(fingerprint, records));
-                continue;
-            }
-
-            let mut by_full: HashMap<String, Vec<Candidate>> = HashMap::new();
-            for record in records {
-                if cancellation(control) {
-                    return Err(DuplicateError::Cancelled);
-                }
-                match hash_full(&record.candidate, control) {
-                    Ok(hash) => {
-                        by_full
-                            .entry(hash.to_hex().to_string())
-                            .or_default()
-                            .push(record.candidate);
-                    }
-                    Err(error) => {
-                        if control.is_cancelled() {
-                            return Err(DuplicateError::Cancelled);
-                        }
-                        push_hash_issue(control, issues, &record.candidate.path, error);
-                    }
-                }
-            }
-            for (fingerprint, files) in by_full {
-                if files.len() >= 2 {
-                    groups.push(build_duplicate_group(fingerprint, files));
-                }
-            }
+    let mut by_prefix: HashMap<(u64, blake3::Hash), Vec<PrefixRecord>> = HashMap::new();
+    for (candidate, hash, complete) in prefixes {
+        match hash {
+            Ok(hash) => by_prefix
+                .entry((candidate.size, hash))
+                .or_default()
+                .push(PrefixRecord {
+                    candidate,
+                    hash,
+                    complete,
+                }),
+            Err(error) => push_hash_issue(control, issues, &candidate.path, error),
         }
     }
 
+    let mut groups = Vec::new();
+    let mut full_candidates = Vec::new();
+    for records in by_prefix.into_values().filter(|records| records.len() >= 2) {
+        if records.iter().all(|record| record.complete) {
+            let fingerprint = records[0].hash.to_hex().to_string();
+            groups.push(build_group(fingerprint, records));
+        } else {
+            full_candidates.extend(records.into_iter().map(|record| record.candidate));
+        }
+    }
+    let hashes: Vec<_> = full_candidates
+        .into_par_iter()
+        .map(|candidate| {
+            let hash = if control.is_cancelled() {
+                Err("cancelled".to_owned())
+            } else {
+                hash_full(&candidate, control)
+            };
+            (candidate, hash)
+        })
+        .collect();
+    if control.is_cancelled() {
+        return Err(DuplicateError::Cancelled);
+    }
+    let mut by_full: HashMap<(u64, blake3::Hash), Vec<Candidate>> = HashMap::new();
+    for (candidate, hash) in hashes {
+        match hash {
+            Ok(hash) => by_full
+                .entry((candidate.size, hash))
+                .or_default()
+                .push(candidate),
+            Err(error) => push_hash_issue(control, issues, &candidate.path, error),
+        }
+    }
+    for ((_, hash), files) in by_full {
+        if files.len() >= 2 {
+            groups.push(build_duplicate_group(hash.to_hex().to_string(), files));
+        }
+    }
+    if control.is_cancelled() {
+        return Err(DuplicateError::Cancelled);
+    }
     groups.sort_unstable_by(|left, right| {
         right
             .reclaimable_bytes

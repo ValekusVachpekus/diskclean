@@ -207,6 +207,12 @@ define_text! {
     ShowAll => ("Show all", "Показать все"),
     Showing => ("Showing", "Показано"),
     General => ("General", "Общие"),
+    WorkerThreads => ("Worker threads", "Число потоков"),
+    AutomaticThreads => ("Automatic", "Автоматически"),
+    WorkerThreadsNote => (
+        "For scanning and duplicates. Automatic uses up to 8 workers. Use 1 for sequential processing; fewer workers may help on HDDs. Applies to new jobs.",
+        "Для сканирования и дубликатов. Автоматически — до 8 потоков. 1 — последовательная обработка; для HDD может быть лучше меньше потоков. Применяется к новым задачам."
+    ),
     ScanningOptions => ("Scanning", "Сканирование"),
     Theme => ("Theme", "Тема"),
     Language => ("Language", "Язык"),

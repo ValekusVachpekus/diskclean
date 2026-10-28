@@ -230,3 +230,27 @@ fn clean_requires_a_mode() {
         .failure()
         .stderr(predicate::str::contains("--dry-run"));
 }
+
+#[test]
+fn thread_options_apply_to_scans_and_duplicates_and_reject_excessive_counts() {
+    let temp = tempdir().expect("fixture");
+    write_file(&temp.path().join("a"), 100);
+    write_file(&temp.path().join("b"), 100);
+    for command in ["scan", "largest", "duplicates"] {
+        for threads in ["0", "1", "4"] {
+            diskclean()
+                .arg(command)
+                .arg(temp.path())
+                .args(["--threads", threads, "--json"])
+                .assert()
+                .success();
+        }
+        diskclean()
+            .arg(command)
+            .arg(temp.path())
+            .args(["--threads", "33"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("thread count from 0 to 32"));
+    }
+}

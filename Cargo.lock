@@ -890,7 +890,6 @@ dependencies = [
  "diskclean-platform",
  "diskclean-rules",
  "predicates",
- "rayon",
  "serde",
  "serde_json",
  "tempfile",

@@ -19,7 +19,6 @@ diskclean-core = { path = "../diskclean-core" }
 diskclean-cleanup = { path = "../diskclean-cleanup" }
 diskclean-platform = { path = "../diskclean-platform" }
 diskclean-rules = { path = "../diskclean-rules" }
-rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

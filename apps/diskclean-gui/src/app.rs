@@ -270,6 +270,7 @@ impl DiskCleanupApp {
         self.workspace = Workspace::Analyze;
         let path = PathBuf::from(path_text);
         let options = ScanOptions {
+            threads: self.settings.worker_threads,
             top_files: 2_000,
             skip_hidden: self.settings.skip_hidden,
             cross_filesystems: self.settings.cross_filesystems,

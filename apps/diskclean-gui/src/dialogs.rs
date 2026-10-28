@@ -110,6 +110,44 @@ impl DiskCleanupApp {
                         ui.checkbox(&mut self.settings.inspector_open, show_inspector);
 
                         components::section_label(ui, palette, self.text(Key::ScanningOptions));
+                        ui.horizontal_wrapped(|ui| {
+                            let threads_label = ui.label(self.text(Key::WorkerThreads));
+                            let requested = self.settings.worker_threads;
+                            let selected = if requested == 0 {
+                                format!(
+                                    "{} ({})",
+                                    self.text(Key::AutomaticThreads),
+                                    diskclean_core::parallel::worker_threads(0)
+                                )
+                            } else {
+                                diskclean_core::parallel::worker_threads(requested).to_string()
+                            };
+                            egui::ComboBox::from_id_salt("worker_threads")
+                                .selected_text(selected)
+                                .width(150.0)
+                                .show_ui(ui, |ui| {
+                                    let automatic = self.text(Key::AutomaticThreads);
+                                    ui.selectable_value(
+                                        &mut self.settings.worker_threads,
+                                        0,
+                                        automatic,
+                                    );
+                                    for count in 1..=diskclean_core::parallel::MAX_WORKER_THREADS {
+                                        ui.selectable_value(
+                                            &mut self.settings.worker_threads,
+                                            count,
+                                            count.to_string(),
+                                        );
+                                    }
+                                })
+                                .response
+                                .labelled_by(threads_label.id);
+                        });
+                        ui.label(
+                            RichText::new(self.text(Key::WorkerThreadsNote))
+                                .color(palette.muted)
+                                .size(10.5),
+                        );
                         let skip_hidden = self.text(Key::SkipHidden);
                         ui.checkbox(&mut self.settings.skip_hidden, skip_hidden);
                         let cross_filesystems = self.text(Key::CrossFilesystems);
