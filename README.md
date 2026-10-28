@@ -95,10 +95,165 @@ HDD performance.
 The UI is available in English and Russian at runtime. The system locale is
 used by default when detectable. There is no telemetry or network access.
 
-## Build and run
+## Installation
+
+The commands below build the GUI from source and install it for the current
+user. The first installation needs internet access, several GB of free space,
+and time to compile dependencies. The application itself works offline.
+System dependencies may ask for your sudo password or show a Windows UAC prompt.
+Rust **1.95 or newer** is required; these commands install the stable toolchain.
+
+### Linux (Ubuntu / Debian, Fedora, Arch Linux)
+
+Open a terminal, copy **this entire block**, and paste it once. It installs
+build dependencies for your distribution, Rust, and the application:
 
 ```bash
-cargo build --release
+bash <<'INSTALL_DISK_CLEANUP'
+set -euo pipefail
+if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y build-essential git curl pkg-config \
+        libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
+        libegl1-mesa-dev libgl1-mesa-dev
+elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y gcc gcc-c++ make git curl pkgconf-pkg-config \
+        libxkbcommon-devel libxkbcommon-x11-devel wayland-devel libX11-devel \
+        mesa-libEGL-devel mesa-libGL-devel
+elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Syu --needed --noconfirm base-devel git curl pkgconf \
+        libxkbcommon libxkbcommon-x11 wayland libx11 mesa libglvnd
+else
+    echo 'Install the Rust and eframe build dependencies for your distribution first.' >&2
+    exit 1
+fi
+if ! command -v rustup >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+    rustup_script="$(mktemp)"
+    trap 'rm -f -- "$rustup_script"' EXIT
+    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$rustup_script"
+    sh "$rustup_script" -y --profile minimal --default-toolchain stable
+fi
+export PATH="$HOME/.cargo/bin:$PATH"
+rustup toolchain install stable --profile minimal
+source_dir="$HOME/.local/share/disk-cleanup-source"
+mkdir -p "$(dirname "$source_dir")"
+git clone https://github.com/ValekusVachpekus/diskclean.git "$source_dir"
+RUSTUP_TOOLCHAIN=stable bash "$source_dir/install.sh"
+echo "Ready. Launch with: $HOME/.local/bin/disk-cleanup"
+INSTALL_DISK_CLEANUP
+```
+
+Run the installed application:
+
+```bash
+~/.local/bin/disk-cleanup
+~/.local/bin/disk-cleanup ~/Downloads
+```
+
+The Linux installer creates a `disk-cleanup` symlink in `~/.local/bin` pointing
+to the release GUI inside `~/.local/share/disk-cleanup-source`. **Keep that source
+folder in place.** If `~/.local/bin` is in PATH, you can simply run `disk-cleanup`.
+An optional argument to `install.sh` selects another bin directory; existing
+regular files are never overwritten.
+
+If you already cloned the project and installed its dependencies:
+
+```bash
+./install.sh
+```
+
+To update an installation made with the full block above:
+
+```bash
+bash <<'UPDATE_DISK_CLEANUP'
+set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
+rustup toolchain install stable --profile minimal
+git -C "$HOME/.local/share/disk-cleanup-source" pull --ff-only
+RUSTUP_TOOLCHAIN=stable bash "$HOME/.local/share/disk-cleanup-source/install.sh"
+UPDATE_DISK_CLEANUP
+```
+
+### Windows 10 / 11 (64-bit)
+
+Open **PowerShell** as your normal user, copy **this entire block**, and paste
+it once. `winget` must be available (install/update **App Installer** from the
+Microsoft Store if the command is missing). Accept the UAC prompt for the
+Microsoft C++ Build Tools. The block installs Git, Rust and the C++ workload,
+clones the project, and calls `install.bat`:
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw 'Install App Installer from the Microsoft Store, then paste this block again.'
+    }
+    function Install-Dependency([string]$Id, [string[]]$Extra = @()) {
+        & winget install --id $Id --exact --source winget --accept-package-agreements --accept-source-agreements @Extra
+        # WinGet also returns this code when the installed version is already current.
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
+            throw "Dependency installation failed: $Id (exit $LASTEXITCODE)."
+        }
+    }
+    Install-Dependency 'Git.Git'
+    Install-Dependency 'Microsoft.VisualStudio.2022.BuildTools' @('--override', '--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended')
+    Install-Dependency 'Rustlang.Rustup'
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
+    $env:RUSTUP_TOOLCHAIN = 'stable-x86_64-pc-windows-msvc'
+    & rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
+    if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed.' }
+    $sourceDir = Join-Path $env:LOCALAPPDATA 'DiskCleanup-source'
+    & git clone https://github.com/ValekusVachpekus/diskclean.git $sourceDir
+    if ($LASTEXITCODE -ne 0) { throw 'Clone failed. If the source folder already exists, use the update block below.' }
+    & (Join-Path $sourceDir 'install.bat')
+    if ($LASTEXITCODE -ne 0) { throw 'Disk Cleanup installation failed.' }
+    Start-Process (Join-Path $env:LOCALAPPDATA 'Programs\DiskCleanup\disk-cleanup.exe')
+}
+```
+
+The installer copies the GUI to
+`%LOCALAPPDATA%\Programs\DiskCleanup\disk-cleanup.exe` and creates a **Disk Cleanup**
+shortcut in your **Start menu**. It installs for the current user without adding
+to PATH. The installed Windows application runs independently of the source
+folder. `install.bat` delegates to [install.ps1](install.ps1); its execution-policy
+bypass applies only to that PowerShell process and does not change system policy.
+
+If C++ Build Tools were already installed without the C++ workload, open
+**Visual Studio Installer → Modify → Desktop development with C++**, include a
+Windows SDK, and rerun `install.bat`. See the official
+[Rust Windows prerequisites](https://rust-lang.github.io/rustup/installation/windows-msvc.html)
+and [Visual Studio installation parameters](https://learn.microsoft.com/en-us/visualstudio/install/use-command-line-parameters-to-install-visual-studio).
+If an installer requests a restart, restart Windows before rerunning the build.
+
+If you already cloned the project and have Rust/MSVC installed, open PowerShell
+in the repository and run:
+
+```powershell
+.\install.bat
+# Optional custom installation directory:
+.\install.bat "D:\Apps\Disk Cleanup"
+```
+
+To update an installation made with the full block above, close Disk Cleanup
+and paste this into PowerShell (keep the source folder if you want to update):
+
+```powershell
+& {
+    $sourceDir = Join-Path $env:LOCALAPPDATA 'DiskCleanup-source'
+    & git -C $sourceDir pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Source update failed.' }
+    $env:RUSTUP_TOOLCHAIN = 'stable-x86_64-pc-windows-msvc'
+    & rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
+    if ($LASTEXITCODE -ne 0) { throw 'Rust update failed.' }
+    & (Join-Path $sourceDir 'install.bat')
+    if ($LASTEXITCODE -ne 0) { throw 'Disk Cleanup update failed.' }
+}
+```
+
+## Build and run (development)
+
+```bash
+cargo build --release --locked
 cargo run -p diskclean-cli -- volumes
 cargo run -p diskclean-cli -- scan ~ --json
 cargo run -p diskclean-gui -- .
@@ -106,22 +261,9 @@ cargo run -p diskclean-gui -- ~/Downloads
 ```
 
 The GUI accepts an optional path; when provided it starts scanning immediately.
-Release binaries are written to `target/release/diskclean` and
-`target/release/diskclean-gui`.
-
-On Linux, build and install a `disk-cleanup` command with:
-
-```bash
-./install.sh
-disk-cleanup                 # Open the GUI
-disk-cleanup ~/Downloads     # Scan a directory
-```
-
-The script creates a symlink in `~/.local/bin` to the release GUI in this
-checkout. Keep the checkout in place; rerun the script after moving it or
-updating the source. An optional first argument selects a different bin
-directory. If needed, the script prints the line to add that directory to PATH.
-It refuses to overwrite a regular file.
+Native release binaries are written to `target/release/diskclean` and
+`target/release/diskclean-gui` (with `.exe` on Windows). The Windows installer
+uses the explicit MSVC target under `target/x86_64-pc-windows-msvc/release`.
 
 ### System directories and sudo on Wayland
 

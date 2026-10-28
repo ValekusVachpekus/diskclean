@@ -461,6 +461,23 @@ backend covers success/error/cancel/changed-file; system commands never run.
 
 ## Progress log
 
+- 2026-10-28 (source installation guides): README now provides complete
+  copy/paste installation blocks for Ubuntu/Debian, Fedora, Arch Linux and
+  Windows 10/11 x64, including dependencies, stable Rust, cloning, installation,
+  launching and subsequent updates. Windows `install.bat` delegates to
+  `install.ps1`, builds the explicit x86_64 MSVC target with locked dependencies,
+  copies the GUI to the current user's LocalAppData/Programs/DiskCleanup and
+  creates a Start menu shortcut. An optional directory supports spaces; failures
+  return nonzero. The installed Windows executable is independent of its checkout;
+  Linux retains the documented checkout-backed symlink. No global execution
+  policy or application privilege changes. Added Windows CI installer smoke and
+  shortcut validation plus PowerShell syntax checks for the script/README blocks.
+  Local verification: Linux release build/install to a directory with spaces,
+  existing-file refusal, all README Bash block syntax and diff whitespace pass.
+  Windows installer/runtime and fresh-machine bootstrap execution remain pending
+  Windows CI/manual validation. This is source installation, not Phase 7 binary
+  packaging.
+
 - 2026-10-28 (Windows CI fixture correction): Inspected failed run
   [40698710372](https://github.com/ValekusVachpekus/diskclean/actions/runs/40698710372)
   with `gh run view --log-failed`. Windows CLI recommendation/dry-run tests

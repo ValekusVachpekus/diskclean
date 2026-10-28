@@ -302,6 +302,18 @@ resolution is unchanged; core tests retain recursive dev-artifact coverage.
 Linux workspace tests and all-targets clippy for Linux/Windows pass; hosted
 Windows runtime verification awaits a push/rerun.
 
+Source installation follow-up (2026-10-28): README includes full copy/paste
+bootstrap blocks for Linux (Ubuntu/Debian, Fedora, Arch) and Windows 10/11 x64,
+plus launch/update instructions. `install.bat [directory]` runs `install.ps1`:
+locked MSVC release build, per-user executable copy and Start menu shortcut.
+Windows installs default to LocalAppData/Programs/DiskCleanup and run independently
+of the source checkout; Linux `install.sh` retains its checkout-backed symlink.
+CI now checks Windows installer/README PowerShell syntax, installation into a
+path with spaces and shortcut destination. Linux build/install, file-overwrite
+refusal and README Bash syntax are locally checked. Windows installer execution
+and fresh-machine bootstrap verification remain pending; binary packaging is
+still open.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
