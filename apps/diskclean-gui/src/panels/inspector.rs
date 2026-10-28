@@ -4,7 +4,7 @@ use eframe::egui::{
     self, Align, Align2, Button, Color32, FontId, Frame, Layout, RichText, Sense, Stroke, vec2,
 };
 
-use crate::app::{DiskCleanupApp, kind_icon, kind_label, sort_children_by_size};
+use crate::app::{DiskCleanupApp, kind_icon, kind_label};
 use crate::i18n::Key;
 use crate::ui::{components, format, icons, theme, tokens};
 
@@ -201,8 +201,7 @@ impl DiskCleanupApp {
                 if node.kind.is_dir() {
                     ui.add_space(12.0);
                     components::section_label(ui, palette, self.text(Key::Children));
-                    let mut children = self.visible_children(&tree, selected);
-                    sort_children_by_size(&tree, &mut children);
+                    let children = self.indexed_children(&tree, selected);
                     if children.is_empty() {
                         ui.label(
                             RichText::new(self.text(Key::NoMatches))
@@ -210,7 +209,7 @@ impl DiskCleanupApp {
                                 .size(11.0),
                         );
                     }
-                    for child in children.into_iter().take(6) {
+                    for child in children.iter().copied().take(6) {
                         let child_node = tree.node(child);
                         let (rect, response) = ui
                             .allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());

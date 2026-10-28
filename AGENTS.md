@@ -221,6 +221,11 @@ S3 complete: shared GUI apply jobs expose progress and cancellation; CLI apply
 handles Ctrl+C. Validation/hashing is cancellable and completed trash calls
 are audited before stopping. Concurrent GUI apply operations are prevented.
 
+S4 implemented: full-tree background analysis indexing and cached queries,
+correct sort direction, filtered extension totals/sorting, localized issue
+summaries and path/category filters. A 100k-node headless regression covers
+indexing, query reuse and rendering; real-display performance remains a U3 gate.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**

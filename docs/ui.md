@@ -178,6 +178,12 @@ are explicitly named.
 
 ## Localization
 
+Analyze searches all indexed paths, including files outside the scan's top-N
+summary. Types applies search/minimum-size/file visibility to individual files
+before aggregating extensions; share bars use the filtered total. Issues uses
+path search and its own category selector; data size/type filters do not hide
+unreadable objects. Localized summaries expose original OS details on hover.
+
 - Language is switchable at runtime and persisted; system locale is the
   default when detectable.
 - All labels, tooltips, empty states, dialogs, errors, and rule descriptions

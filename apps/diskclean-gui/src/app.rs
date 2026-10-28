@@ -13,6 +13,7 @@ use diskclean_platform::{VolumeInfo, list_volumes};
 use eframe::egui::{self, Id, Key, Margin, Stroke};
 use egui::Frame;
 
+use crate::analysis::{AnalysisIndex, AnalysisQuery, AnalysisView};
 use crate::i18n::{self, Key as TextKey, Language};
 use crate::settings::Settings;
 use crate::ui::theme::{self, Palette, ThemeMode};
@@ -42,9 +43,10 @@ pub(crate) enum SortKey {
     Size,
     Name,
     Modified,
+    Count,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SortState {
     pub(crate) key: SortKey,
     pub(crate) descending: bool,
@@ -57,7 +59,7 @@ impl SortState {
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Filters {
     pub(crate) search: String,
     pub(crate) min_size: String,
@@ -82,11 +84,13 @@ pub(crate) enum ScanFailure {
     Error(String),
 }
 
+type ScanOutput = (Arc<Tree>, Arc<AnalysisIndex>);
+
 pub(crate) enum ScanState {
     Idle,
     Running {
         control: ScanControl,
-        receiver: Receiver<Result<Tree, ScanFailure>>,
+        receiver: Receiver<Result<ScanOutput, ScanFailure>>,
         started: Instant,
         path: PathBuf,
     },
@@ -96,6 +100,7 @@ pub(crate) enum ScanState {
 pub(crate) struct CachedScan {
     pub(crate) path: PathBuf,
     pub(crate) tree: Arc<Tree>,
+    pub(crate) index: Arc<AnalysisIndex>,
     pub(crate) scanned_at: Instant,
 }
 
@@ -122,7 +127,10 @@ pub(crate) struct DiskCleanupApp {
     pub(crate) volumes: Vec<VolumeInfo>,
     pub(crate) cache: Vec<CachedScan>,
     pub(crate) tree: Option<Arc<Tree>>,
-    pub(crate) top_folders: Vec<NodeId>,
+    pub(crate) analysis_index: Arc<AnalysisIndex>,
+    pub(crate) analysis_view: AnalysisView,
+    pub(crate) type_sort: SortState,
+    pub(crate) issue_kind: Option<diskclean_core::IssueKind>,
     pub(crate) selected: NodeId,
     pub(crate) state: ScanState,
     pub(crate) tab: Tab,
@@ -170,7 +178,10 @@ impl DiskCleanupApp {
             volumes: list_volumes(),
             cache: Vec::new(),
             tree: None,
-            top_folders: Vec::new(),
+            analysis_index: Arc::new(AnalysisIndex::default()),
+            analysis_view: AnalysisView::default(),
+            type_sort: SortState::SIZE,
+            issue_kind: None,
             selected: ROOT_ID,
             state: ScanState::Idle,
             tab: Tab::Map,
@@ -196,9 +207,9 @@ impl DiskCleanupApp {
             .as_ref()
             .map(|tree| tree.root_path.display().to_string())
             .unwrap_or_default();
-        let top_folders = tree
+        let analysis_index = tree
             .as_ref()
-            .map_or_else(Vec::new, |tree| compute_top_folders(tree));
+            .map_or_else(AnalysisIndex::default, |tree| AnalysisIndex::new(tree));
 
         Self {
             palette: Palette::for_theme(settings.theme, None),
@@ -210,7 +221,10 @@ impl DiskCleanupApp {
             volumes: Vec::new(),
             cache: Vec::new(),
             tree,
-            top_folders,
+            analysis_index: Arc::new(analysis_index),
+            analysis_view: AnalysisView::default(),
+            type_sort: SortState::SIZE,
+            issue_kind: None,
             selected: ROOT_ID,
             state: ScanState::Idle,
             tab: Tab::Map,
@@ -267,7 +281,14 @@ impl DiskCleanupApp {
 
         thread::spawn(move || {
             let result = match scan(&scan_path, &options, &thread_control) {
-                Ok(tree) => Ok(tree),
+                Ok(tree) => {
+                    let index = Arc::new(AnalysisIndex::new(&tree));
+                    if thread_control.is_cancelled() {
+                        Err(ScanFailure::Cancelled)
+                    } else {
+                        Ok((Arc::new(tree), index))
+                    }
+                }
                 Err(ScanError::Cancelled) => Err(ScanFailure::Cancelled),
                 Err(error) => Err(ScanFailure::Error(error.to_string())),
             };
@@ -296,10 +317,8 @@ impl DiskCleanupApp {
         };
 
         match received {
-            Some(Ok(Ok(tree))) => {
+            Some(Ok(Ok((tree, index)))) => {
                 let root = tree.root_path.clone();
-                let top_folders = compute_top_folders(&tree);
-                let tree = Arc::new(tree);
 
                 self.path_input = root.display().to_string();
                 self.settings.last_path = self.path_input.clone();
@@ -310,13 +329,15 @@ impl DiskCleanupApp {
                     CachedScan {
                         path: root,
                         tree: Arc::clone(&tree),
+                        index: Arc::clone(&index),
                         scanned_at: Instant::now(),
                     },
                 );
                 self.cache.truncate(3);
 
                 self.tree = Some(tree);
-                self.top_folders = top_folders;
+                self.analysis_index = index;
+                self.analysis_view = AnalysisView::default();
                 self.selected = ROOT_ID;
                 self.tab = Tab::Map;
                 self.narrow_inspector = false;
@@ -356,7 +377,13 @@ impl DiskCleanupApp {
         self.path_input = path.display().to_string();
         self.settings.last_path = self.path_input.clone();
         self.settings.remember_root(&path);
-        self.top_folders = compute_top_folders(&tree);
+        self.analysis_index = self
+            .cache
+            .iter()
+            .find(|entry| Arc::ptr_eq(&entry.tree, &tree))
+            .map(|entry| Arc::clone(&entry.index))
+            .unwrap_or_else(|| Arc::new(AnalysisIndex::new(&tree)));
+        self.analysis_view = AnalysisView::default();
         self.tree = Some(tree);
         self.selected = ROOT_ID;
         self.tab = Tab::Map;
@@ -396,8 +423,29 @@ impl DiskCleanupApp {
     pub(crate) fn clear_filters(&mut self) {
         self.filters = Filters::default();
         self.focus_search = false;
+        self.issue_kind = None;
     }
 
+    pub(crate) fn update_analysis(&mut self, tree: &Tree) {
+        self.analysis_view.update(
+            tree,
+            &self.analysis_index,
+            AnalysisQuery {
+                filters: self.filters.clone(),
+                files: self.file_sort,
+                folders: self.folder_sort,
+                types: self.type_sort,
+                issue_kind: self.issue_kind,
+            },
+        );
+    }
+
+    pub(crate) fn indexed_children(&mut self, tree: &Tree, id: NodeId) -> Arc<Vec<NodeId>> {
+        self.update_analysis(tree);
+        self.analysis_view.children(&self.analysis_index, id)
+    }
+
+    #[cfg(test)]
     pub(crate) fn visible_children(&self, tree: &Tree, id: NodeId) -> Vec<NodeId> {
         let needle = self.filters.search.trim().to_lowercase();
         let min_size = self.min_size();
@@ -728,68 +776,6 @@ impl eframe::App for DiskCleanupApp {
         self.settings.last_path = self.path_input.clone();
         self.settings.save(storage);
     }
-}
-
-pub(crate) fn compute_top_folders(tree: &Tree) -> Vec<NodeId> {
-    let mut folders: Vec<NodeId> = tree
-        .nodes
-        .iter()
-        .enumerate()
-        .filter(|(index, node)| *index != ROOT_ID as usize && node.kind.is_dir())
-        .map(|(index, _)| index as NodeId)
-        .collect();
-
-    folders.sort_unstable_by(|left, right| {
-        tree.node(*right)
-            .allocated_size
-            .cmp(&tree.node(*left).allocated_size)
-            .then_with(|| {
-                tree.node(*left)
-                    .display_name()
-                    .cmp(&tree.node(*right).display_name())
-            })
-    });
-    folders.truncate(2_000);
-    folders
-}
-
-pub(crate) fn sort_children_by_size(tree: &Tree, children: &mut [NodeId]) {
-    children.sort_unstable_by(|left, right| {
-        tree.node(*right)
-            .allocated_size
-            .cmp(&tree.node(*left).allocated_size)
-            .then_with(|| {
-                tree.node(*left)
-                    .display_name()
-                    .cmp(&tree.node(*right).display_name())
-            })
-    });
-}
-
-pub(crate) fn sort_ids(tree: &Tree, ids: &mut [NodeId], sort: SortState) {
-    ids.sort_unstable_by(|left, right| {
-        let left_node = tree.node(*left);
-        let right_node = tree.node(*right);
-        let order = match sort.key {
-            SortKey::Size => right_node
-                .allocated_size
-                .cmp(&left_node.allocated_size)
-                .then_with(|| left_node.display_name().cmp(&right_node.display_name())),
-            SortKey::Name => left_node
-                .display_name()
-                .cmp(&right_node.display_name())
-                .then_with(|| right_node.allocated_size.cmp(&left_node.allocated_size)),
-            SortKey::Modified => right_node
-                .modified_unix
-                .cmp(&left_node.modified_unix)
-                .then_with(|| right_node.allocated_size.cmp(&left_node.allocated_size)),
-        };
-        if sort.descending {
-            order.reverse()
-        } else {
-            order
-        }
-    });
 }
 
 pub(crate) fn kind_label(language: Language, kind: NodeKind) -> &'static str {

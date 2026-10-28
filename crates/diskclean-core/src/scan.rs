@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use diskclean_platform::file_meta::{self, FileKind, FileMeta};
+use diskclean_platform::{MountPoints, check_path_components};
 use rayon::prelude::*;
 
 use crate::error::{ScanError, ScanIssue};
@@ -71,6 +72,14 @@ pub fn scan(
     if root_meta.kind != FileKind::Directory {
         return Err(ScanError::NotDirectory(root_path));
     }
+    check_path_components(&root_path).map_err(|source| ScanError::Root {
+        path: root_path.clone(),
+        source,
+    })?;
+    let mounts = MountPoints::read().map_err(|source| ScanError::Root {
+        path: root_path.clone(),
+        source,
+    })?;
 
     let mut excludes = normalize_excludes(&root_path, &options.exclude);
     if root_path == Path::new("/") {
@@ -93,6 +102,7 @@ pub fn scan(
         control,
         root_dev: root_meta.dev,
         excludes: &excludes,
+        mounts: &mounts,
     };
     let raw = scanner.scan_dir(&root_path, root_name.clone(), root_meta, 0);
 
@@ -152,6 +162,7 @@ struct Scanner<'a> {
     control: &'a ScanControl,
     root_dev: u64,
     excludes: &'a [PathBuf],
+    mounts: &'a MountPoints,
 }
 
 impl Scanner<'_> {
@@ -174,7 +185,7 @@ impl Scanner<'_> {
         self.control.record_directory();
         self.control.set_current(path);
 
-        let read_dir = match fs::read_dir(path) {
+        let read_dir = match check_path_components(path).and_then(|()| fs::read_dir(path)) {
             Ok(read_dir) => read_dir,
             Err(error) => {
                 self.record_issue(&mut raw, path, "read directory", &error);
@@ -224,7 +235,9 @@ impl Scanner<'_> {
                         raw.skipped_depth = raw.skipped_depth.saturating_add(1);
                         continue;
                     }
-                    if entry_meta.dev != self.root_dev && !self.options.cross_filesystems {
+                    if !self.options.cross_filesystems
+                        && (entry_meta.dev != self.root_dev || self.mounts.contains(&entry_path))
+                    {
                         raw.skipped_mounts = raw.skipped_mounts.saturating_add(1);
                         continue;
                     }

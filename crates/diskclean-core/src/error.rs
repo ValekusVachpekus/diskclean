@@ -44,11 +44,12 @@ impl ScanIssue {
     }
 
     pub fn from_io(path: PathBuf, action: &str, error: &io::Error) -> Self {
-        Self::new(
-            path,
-            IssueKind::from(error.kind()),
-            format!("{action}: {error}"),
-        )
+        let kind = match IssueKind::from(error.kind()) {
+            IssueKind::Other if action.starts_with("read directory") => IssueKind::ReadDir,
+            IssueKind::Other if action == "read metadata" => IssueKind::Metadata,
+            kind => kind,
+        };
+        Self::new(path, kind, format!("{action}: {error}"))
     }
 }
 

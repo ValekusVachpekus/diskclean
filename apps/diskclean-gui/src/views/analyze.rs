@@ -11,7 +11,7 @@ use egui_extras::{Column, TableBuilder};
 
 use crate::app::{
     DiskCleanupApp, SortKey, SortState, Tab, Workspace, files_label, folders_label, kind_icon,
-    kind_label, search_field_id, sort_children_by_size, sort_ids,
+    kind_label, search_field_id,
 };
 use crate::i18n::Key;
 use crate::ui::{components, format, icons, theme, tokens};
@@ -34,6 +34,7 @@ impl DiskCleanupApp {
         self.workspace_header(ui, &tree);
         self.workspace_tabs(ui);
         self.workspace_toolbar(ui);
+        self.update_analysis(&tree);
         ui.add_space(8.0);
 
         match self.tab {
@@ -203,6 +204,14 @@ impl DiskCleanupApp {
                 self.filters.search.clear();
             }
 
+            if self.tab == Tab::Issues {
+                ui.label(
+                    RichText::new(self.text(Key::IssueSearchPaths))
+                        .small()
+                        .color(palette.muted),
+                );
+                return;
+            }
             let active = self.filters_active();
             let label = if active > 0 {
                 format!("{}  {} · {active}", icons::FILTER, self.text(Key::Filters))
@@ -223,6 +232,9 @@ impl DiskCleanupApp {
             }
         });
 
+        if self.tab == Tab::Issues {
+            return;
+        }
         if self.filters_active() > 0 {
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
@@ -318,11 +330,10 @@ impl DiskCleanupApp {
             selected_node.parent.unwrap_or(ROOT_ID)
         };
 
-        let mut children = self.visible_children(tree, map_root);
-        sort_children_by_size(tree, &mut children);
+        let children = self.indexed_children(tree, map_root);
         let total_children = children.len();
         const MAX_TILES: usize = 500;
-        children.truncate(MAX_TILES);
+        let children = &children[..total_children.min(MAX_TILES)];
 
         if children.is_empty() {
             components::empty_hint(ui, palette, self.text(Key::NoMatches));
@@ -468,19 +479,8 @@ impl DiskCleanupApp {
             return;
         }
 
-        let needle = self.filters.search.trim().to_lowercase();
-        let min_size = self.min_size();
-        let mut files: Vec<NodeId> = tree
-            .top_files
-            .iter()
-            .copied()
-            .filter(|id| {
-                let node = tree.node(*id);
-                let path = tree.path(*id).to_string_lossy().to_lowercase();
-                (needle.is_empty() || path.contains(&needle)) && node.allocated_size >= min_size
-            })
-            .collect();
-        sort_ids(tree, &mut files, self.file_sort);
+        let files = Arc::clone(&self.analysis_view.files);
+        let index = Arc::clone(&self.analysis_index);
 
         if files.is_empty() {
             components::empty_hint(ui, self.palette, self.text(Key::NoFiles));
@@ -557,7 +557,7 @@ impl DiskCleanupApp {
                 body.rows(tokens::ROW_HEIGHT, files.len(), |mut row| {
                     let id = files[row.index()];
                     let node = tree.node(id);
-                    let path = tree.path(id);
+                    let path = index.paths[id as usize].clone();
                     row.set_selected(selected == id);
                     row.col(|ui| {
                         ui.horizontal(|ui| {
@@ -641,19 +641,8 @@ impl DiskCleanupApp {
             return;
         }
 
-        let needle = self.filters.search.trim().to_lowercase();
-        let min_size = self.min_size();
-        let mut folders: Vec<NodeId> = self
-            .top_folders
-            .iter()
-            .copied()
-            .filter(|id| {
-                let node = tree.node(*id);
-                let path = tree.path(*id).to_string_lossy().to_lowercase();
-                (needle.is_empty() || path.contains(&needle)) && node.allocated_size >= min_size
-            })
-            .collect();
-        sort_ids(tree, &mut folders, self.folder_sort);
+        let folders = Arc::clone(&self.analysis_view.folders);
+        let index = Arc::clone(&self.analysis_index);
 
         if folders.is_empty() {
             components::empty_hint(ui, self.palette, self.text(Key::NoFolders));
@@ -720,7 +709,7 @@ impl DiskCleanupApp {
                 body.rows(tokens::ROW_HEIGHT, folders.len(), |mut row| {
                     let id = folders[row.index()];
                     let node = tree.node(id);
-                    let path = tree.path(id);
+                    let path = index.paths[id as usize].clone();
                     row.set_selected(selected == id);
                     row.col(|ui| {
                         ui.horizontal(|ui| {
@@ -777,28 +766,24 @@ impl DiskCleanupApp {
         }
     }
 
-    fn types_tab(&mut self, ui: &mut egui::Ui, tree: &Arc<Tree>) {
+    fn types_tab(&mut self, ui: &mut egui::Ui, _tree: &Arc<Tree>) {
         let palette = self.palette;
         let language = self.language();
-        let needle = self.filters.search.trim().to_lowercase();
-        let min_size = self.min_size();
-        let extensions: Vec<_> = tree
-            .extension_summaries()
-            .into_iter()
-            .filter(|extension| {
-                (needle.is_empty() || extension.extension.to_lowercase().contains(&needle))
-                    && extension.allocated_bytes >= min_size
-            })
-            .collect();
+        let extensions = Arc::clone(&self.analysis_view.extensions);
 
         if extensions.is_empty() {
             components::empty_hint(ui, palette, self.text(Key::NoTypes));
             return;
         }
 
-        let max_size = extensions
-            .first()
-            .map_or(1, |extension| extension.allocated_bytes.max(1));
+        let total_size = extensions
+            .iter()
+            .fold(0_u64, |sum, extension| {
+                sum.saturating_add(extension.allocated_bytes)
+            })
+            .max(1);
+        let sort = self.type_sort;
+        let mut next_sort = None;
         let labels = [
             self.text(Key::Types),
             self.text(Key::Files),
@@ -816,9 +801,24 @@ impl DiskCleanupApp {
             .column(Column::exact(92.0))
             .column(Column::exact(150.0))
             .header(tokens::HEADER_HEIGHT, |mut header| {
-                for label in labels {
+                for (column, label) in labels.into_iter().enumerate() {
                     header.col(|ui| {
-                        ui.label(RichText::new(label).color(palette.muted).size(10.5));
+                        let key = match column {
+                            0 => SortKey::Name,
+                            1 => SortKey::Count,
+                            _ => SortKey::Size,
+                        };
+                        if components::sort_header(
+                            ui,
+                            palette,
+                            label,
+                            sort.key == key,
+                            sort.descending,
+                        )
+                        .clicked()
+                        {
+                            next_sort = Some(next_sort_state(sort, key));
+                        }
                     });
                 }
             })
@@ -852,7 +852,7 @@ impl DiskCleanupApp {
                     });
                     row.col(|ui| {
                         let fraction =
-                            (extension.allocated_bytes as f32 / max_size as f32).clamp(0.0, 1.0);
+                            (extension.allocated_bytes as f32 / total_size as f32).clamp(0.0, 1.0);
                         ui.add(
                             egui::ProgressBar::new(fraction)
                                 .desired_height(5.0)
@@ -861,11 +861,38 @@ impl DiskCleanupApp {
                     });
                 });
             });
+        if let Some(sort) = next_sort {
+            self.type_sort = sort;
+        }
     }
 
     fn issues_tab(&mut self, ui: &mut egui::Ui, tree: &Arc<Tree>) {
         let palette = self.palette;
-        if tree.issues.is_empty() {
+        let language = self.language();
+        egui::ComboBox::from_id_salt("issue_kind")
+            .selected_text(
+                self.issue_kind
+                    .map_or(self.text(Key::All), |kind| issue_label(language, kind)),
+            )
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.issue_kind, None, language.text(Key::All));
+                for kind in [
+                    diskclean_core::IssueKind::PermissionDenied,
+                    diskclean_core::IssueKind::NotFound,
+                    diskclean_core::IssueKind::ReadDir,
+                    diskclean_core::IssueKind::Metadata,
+                    diskclean_core::IssueKind::Other,
+                ] {
+                    ui.selectable_value(
+                        &mut self.issue_kind,
+                        Some(kind),
+                        issue_label(language, kind),
+                    );
+                }
+            });
+        self.update_analysis(tree);
+        let issues = Arc::clone(&self.analysis_view.issues);
+        if issues.is_empty() {
             components::empty_hint(ui, palette, self.text(Key::NoIssues));
             return;
         }
@@ -891,11 +918,11 @@ impl DiskCleanupApp {
                 }
             })
             .body(|body| {
-                body.rows(tokens::ROW_HEIGHT, tree.issues.len(), |mut row| {
-                    let issue = &tree.issues[row.index()];
+                body.rows(tokens::ROW_HEIGHT, issues.len(), |mut row| {
+                    let issue = &tree.issues[issues[row.index()]];
                     row.col(|ui| {
                         ui.label(
-                            RichText::new(format!("{:?}", issue.kind))
+                            RichText::new(issue_label(language, issue.kind))
                                 .color(palette.warning)
                                 .size(10.5),
                         );
@@ -911,13 +938,40 @@ impl DiskCleanupApp {
                     });
                     row.col(|ui| {
                         ui.add(
-                            egui::Label::new(RichText::new(&issue.message).size(11.0)).truncate(),
+                            egui::Label::new(
+                                RichText::new(issue_summary(language, issue.kind)).size(11.0),
+                            )
+                            .truncate(),
                         )
                         .on_hover_text(&issue.message);
+                    });
+                    row.response().context_menu(|ui| {
+                        if ui.button(language.text(Key::CopyPath)).clicked() {
+                            ui.ctx().copy_text(issue.path.display().to_string());
+                            ui.close();
+                        }
                     });
                 });
             });
     }
+}
+
+fn issue_label(language: crate::i18n::Language, kind: diskclean_core::IssueKind) -> &'static str {
+    language.text(match kind {
+        diskclean_core::IssueKind::PermissionDenied => Key::IssuePermission,
+        diskclean_core::IssueKind::NotFound => Key::IssueMissing,
+        diskclean_core::IssueKind::ReadDir => Key::IssueReadDirectory,
+        diskclean_core::IssueKind::Metadata => Key::IssueMetadata,
+        diskclean_core::IssueKind::Other => Key::Other,
+    })
+}
+
+fn issue_summary(language: crate::i18n::Language, kind: diskclean_core::IssueKind) -> &'static str {
+    language.text(match kind {
+        diskclean_core::IssueKind::PermissionDenied => Key::IssuePermissionBody,
+        diskclean_core::IssueKind::NotFound => Key::IssueMissingBody,
+        _ => Key::IssueReadBody,
+    })
 }
 
 fn next_sort_state(current: SortState, key: SortKey) -> SortState {

@@ -29,6 +29,102 @@ use crate::views::cleanup::RiskFilter;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
+fn large_analysis_fixture(count: usize) -> Tree {
+    let mut tree = fixture_tree();
+    let template = tree
+        .nodes
+        .iter()
+        .find(|node| node.kind == NodeKind::File)
+        .expect("file")
+        .clone();
+    tree.nodes.truncate(1);
+    tree.nodes[0].first_child = Some(1);
+    tree.nodes[0].allocated_size = (1..=count as u64).sum();
+    tree.nodes[0].file_count = count as u64;
+    for id in 1..=count {
+        let mut node = template.clone();
+        node.parent = Some(0);
+        node.first_child = None;
+        node.next_sibling = (id < count).then_some(id as u32 + 1);
+        node.name = format!("file-{id:06}.bin").into();
+        node.allocated_size = id as u64;
+        node.logical_size = id as u64;
+        node.modified_unix = id as i64;
+        tree.nodes.push(node);
+    }
+    tree.top_files = vec![count as u32];
+    tree
+}
+
+#[test]
+fn full_tree_queries_sort_and_find_files_outside_top_summary() {
+    use crate::app::{SortKey, SortState};
+    let tree = Arc::new(large_analysis_fixture(3_000));
+    let mut app = DiskCleanupApp::new_for_test(english_settings(), Some(Arc::clone(&tree)));
+    app.update_analysis(&tree);
+    assert_eq!(app.analysis_view.files.len(), 3_000);
+    assert_eq!(app.analysis_view.files[0], 3_000);
+    app.file_sort = SortState {
+        key: SortKey::Modified,
+        descending: false,
+    };
+    app.update_analysis(&tree);
+    assert_eq!(app.analysis_view.files[0], 1);
+    app.filters.search = "file-000001".into();
+    app.update_analysis(&tree);
+    assert_eq!(&**app.analysis_view.files, &[1]);
+    assert_eq!(app.analysis_view.extensions[0].files, 1);
+    app.filters.min_size = "2".into();
+    app.update_analysis(&tree);
+    assert!(app.analysis_view.files.is_empty());
+    assert!(app.analysis_view.extensions.is_empty());
+}
+
+#[test]
+fn issue_queries_filter_paths_and_categories_independently_of_sizes() {
+    let mut tree = fixture_tree();
+    tree.issues = vec![
+        diskclean_core::ScanIssue::new(
+            "/blocked/one".into(),
+            diskclean_core::IssueKind::PermissionDenied,
+            "details",
+        ),
+        diskclean_core::ScanIssue::new(
+            "/missing/two".into(),
+            diskclean_core::IssueKind::NotFound,
+            "details",
+        ),
+    ];
+    let tree = Arc::new(tree);
+    let mut app = DiskCleanupApp::new_for_test(english_settings(), Some(Arc::clone(&tree)));
+    app.filters.min_size = "100G".into();
+    app.filters.search = "blocked".into();
+    app.update_analysis(&tree);
+    assert_eq!(&**app.analysis_view.issues, &[0]);
+    app.issue_kind = Some(diskclean_core::IssueKind::NotFound);
+    app.update_analysis(&tree);
+    assert!(app.analysis_view.issues.is_empty());
+}
+
+#[test]
+fn hundred_thousand_node_queries_reuse_cached_rows_and_render() {
+    let start = std::time::Instant::now();
+    let tree = Arc::new(large_analysis_fixture(100_000));
+    let mut app = DiskCleanupApp::new_for_test(english_settings(), Some(Arc::clone(&tree)));
+    app.update_analysis(&tree);
+    let rows = Arc::clone(&app.analysis_view.files);
+    for _ in 0..100 {
+        app.update_analysis(&tree);
+    }
+    assert!(Arc::ptr_eq(&rows, &app.analysis_view.files));
+    assert_eq!(rows.len(), 100_000);
+    app.tab = Tab::Files;
+    let mut harness = harness(app, Vec2::new(1280.0, 820.0));
+    harness.run();
+    assert_eq!(harness.state().analysis_view.files.len(), 100_000);
+    eprintln!("100k-node build/query/render: {:?}", start.elapsed());
+}
+
 fn node(
     parent: Option<NodeId>,
     first_child: Option<NodeId>,

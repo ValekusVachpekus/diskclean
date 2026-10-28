@@ -17,7 +17,7 @@ safety audit. Stabilization takes priority over applications and similar media.
 - [x] S2: retain duplicate scan evidence and verify both copies and keepers
       before trashing; validate opened-file identity on Windows.
 - [x] S3: shared cancellable cleanup jobs in GUI/CLI, with per-item progress.
-- [ ] S4: full-tree analysis index, correct sorting, consistent filters and
+- [x] S4: full-tree analysis index, correct sorting, consistent filters and
       localized issue summaries; automated 100k-node performance coverage.
 - [ ] S5: correct platform user directories, documentation/CI quality gates,
       final Linux tests and Windows cross-check.
@@ -457,6 +457,15 @@ backend covers success/error/cancel/changed-file; system commands never run.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-28 (S4): Added a background-built full-tree AnalysisIndex retained
+  with cached scans, cached query results and sorted child lists. Tables no
+  longer limit search to the top 2,000 entries. Fixed sort direction, added
+  extension sorting and compute type totals from individually filtered files.
+  Issues support path/category filtering, localized summaries, technical
+  detail tooltips and Copy path. Added a 100,000-node index/query/headless-render
+  regression and tests for full-tree search and issue filters. Scanner also
+  rejects linked root ancestors and detects same-device Linux bind mounts.
 
 - 2026-10-28 (S3): Added cooperative apply cancellation during directory
   validation/content hashing and between trash calls. Both GUI workspaces use

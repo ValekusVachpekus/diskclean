@@ -343,6 +343,14 @@ define_text! {
         "Расположение журнала аудита недоступно, поэтому очистка отключена."
     ),
     Applying => ("Moving to the trash…", "Перемещаем в корзину…"),
+    IssuePermission => ("Access denied", "Нет доступа"),
+    IssueSearchPaths => ("Search paths; size/type filters apply to data views.", "Поиск по пути; размер и тип относятся к данным."),
+    IssueMissing => ("Not found", "Не найдено"),
+    IssueReadDirectory => ("Directory", "Чтение папки"),
+    IssueMetadata => ("Metadata", "Метаданные"),
+    IssuePermissionBody => ("This item could not be read with your permissions.", "Недостаточно прав для чтения объекта."),
+    IssueMissingBody => ("This item disappeared during the scan.", "Объект исчез во время сканирования."),
+    IssueReadBody => ("Could not read this item. Hover for technical details.", "Не удалось прочитать объект. Подробности — при наведении."),
     CancelAfterCurrent => ("Cancellation waits for the current OS operation.", "Отмена дождётся завершения текущей системной операции."),
     ApplyComplete => ("Moved to the trash", "Перемещено в корзину"),
     ApplyPartial => (
