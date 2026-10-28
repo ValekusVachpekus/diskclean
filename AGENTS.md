@@ -293,6 +293,15 @@ against the previous release or predictions for HDD/cold-cache performance.
 Verification: fmt, workspace clippy -D warnings, all 123 tests (36 GUI), Windows
 cross-check and locked Linux workspace release build pass. No new dependencies.
 
+Windows CI follow-up (2026-10-28): `gh` logs from run 40698710372 showed two
+CLI tests depending on HOME overrides that Windows Known Folders ignores.
+Recommendation/dry-run fixtures now use the common thumbnail-cache rule under
+an explicitly overridden cache directory and assert the exact candidate/rule.
+App-data/temp variables are isolated for child processes. Production profile
+resolution is unchanged; core tests retain recursive dev-artifact coverage.
+Linux workspace tests and all-targets clippy for Linux/Windows pass; hosted
+Windows runtime verification awaits a push/rerun.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**

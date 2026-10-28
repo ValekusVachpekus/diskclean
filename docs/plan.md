@@ -461,6 +461,18 @@ backend covers success/error/cancel/changed-file; system commands never run.
 
 ## Progress log
 
+- 2026-10-28 (Windows CI fixture correction): Inspected failed run
+  [40698710372](https://github.com/ValekusVachpekus/diskclean/actions/runs/40698710372)
+  with `gh run view --log-failed`. Windows CLI recommendation/dry-run tests
+  assumed overriding HOME redirected Known Folders and therefore never found
+  their dev-artifact fixtures. Candidate assertions now use the common
+  thumbnail-cache rule and its explicitly overridden XDG_CACHE_HOME, with an
+  exact candidate-path/rule check. Child-process app-data/temp variables are
+  isolated as well; production Known Folders resolution is unchanged. Core
+  discovery tests still cover recursive dev-artifact discovery. Linux workspace
+  tests and Linux/Windows-target all-targets clippy pass. Hosted Windows runtime
+  verification of this correction remains pending until the change is pushed.
+
 - 2026-10-28 (parallel scan and duplicate discovery): Added per-operation Rayon
   pools; automatic concurrency uses available CPUs capped at 8, manual settings
   accept 1–32 (1 is sequential). Scanner retains parallel directory traversal

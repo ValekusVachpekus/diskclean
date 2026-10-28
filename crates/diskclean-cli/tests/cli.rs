@@ -10,15 +10,23 @@ fn diskclean() -> Command {
     Command::cargo_bin("diskclean").expect("binary exists")
 }
 
-fn isolated_home(temp: &std::path::Path) -> Command {
+fn isolated_environment(temp: &std::path::Path) -> Command {
     let mut command = diskclean();
+    // HOME isolates Unix discovery. Windows correctly uses Known Folders, so
+    // candidate assertions below use the common thumbnail rule whose cache
+    // base is explicitly configurable on both platforms.
     command
         .env("HOME", temp)
         .env("XDG_CACHE_HOME", temp.join(".cache"))
         .env("XDG_DATA_HOME", temp.join(".local/share"))
         .env("XDG_CONFIG_HOME", temp.join(".config"))
         .env("XDG_STATE_HOME", temp.join(".local/state"))
-        .env("TMPDIR", temp.join("tmp"));
+        .env("LOCALAPPDATA", temp.join(".local/share"))
+        .env("APPDATA", temp.join(".config"))
+        .env("PROGRAMDATA", temp.join("program-data"))
+        .env("TMPDIR", temp.join("tmp"))
+        .env("TEMP", temp.join("tmp"))
+        .env("TMP", temp.join("tmp"));
     command
 }
 
@@ -120,8 +128,8 @@ fn invalid_size_is_rejected() {
 #[test]
 fn recommend_json_lists_rules_and_candidates() {
     let temp = tempdir().expect("temp dir");
-    write_file(&temp.path().join("project/target/app"), 1024);
-    let output = isolated_home(temp.path())
+    write_file(&temp.path().join(".cache/thumbnails/image.png"), 1024);
+    let output = isolated_environment(temp.path())
         .args(["recommend", "--json"])
         .output()
         .expect("run recommend");
@@ -133,23 +141,25 @@ fn recommend_json_lists_rules_and_candidates() {
     );
     let report: Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
     let recommendations = report["recommendations"].as_array().expect("array");
-    let dev = recommendations
+    let thumbnails = recommendations
         .iter()
-        .find(|recommendation| recommendation["rule"]["id"] == "dev-artifacts")
-        .expect("dev rule");
-    assert!(dev["items"].as_array().expect("items").iter().any(|item| {
-        item["path"]
-            .as_str()
-            .is_some_and(|path| std::path::Path::new(path).ends_with("project/target"))
-    }));
+        .find(|recommendation| recommendation["rule"]["id"] == "thumbnail-cache")
+        .expect("thumbnail rule");
+    let items = thumbnails["items"].as_array().expect("items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        std::path::Path::new(items[0]["path"].as_str().expect("candidate path")),
+        temp.path().join(".cache/thumbnails")
+    );
+    assert_eq!(items[0]["rule_id"], "thumbnail-cache");
 }
 
 #[test]
 fn recommend_never_mutates_files() {
     let temp = tempdir().expect("temp dir");
-    let candidate = temp.path().join("project/target/app");
+    let candidate = temp.path().join(".cache/thumbnails/image.png");
     write_file(&candidate, 1024);
-    isolated_home(temp.path())
+    isolated_environment(temp.path())
         .args(["recommend"])
         .assert()
         .success()
@@ -159,7 +169,7 @@ fn recommend_never_mutates_files() {
 
 #[test]
 fn clean_refuses_apply_without_confirmation() {
-    isolated_home(std::path::Path::new("/"))
+    isolated_environment(std::path::Path::new("/"))
         .args(["clean", "--apply"])
         .assert()
         .failure()
@@ -169,16 +179,10 @@ fn clean_refuses_apply_without_confirmation() {
 #[test]
 fn clean_dry_run_never_touches_the_candidate() {
     let temp = tempdir().expect("temp dir");
-    let candidate = temp.path().join("project/target/app");
+    let candidate = temp.path().join(".cache/thumbnails/image.png");
     write_file(&candidate, 1024);
-    isolated_home(temp.path())
-        .args([
-            "clean",
-            "--dry-run",
-            "--rule",
-            "dev-artifacts",
-            "--include-high-risk",
-        ])
+    isolated_environment(temp.path())
+        .args(["clean", "--dry-run", "--rule", "thumbnail-cache"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Nothing was changed"));
@@ -224,7 +228,7 @@ fn duplicates_json_finds_groups_without_mutating_files() {
 
 #[test]
 fn clean_requires_a_mode() {
-    isolated_home(std::path::Path::new("/"))
+    isolated_environment(std::path::Path::new("/"))
         .args(["clean"])
         .assert()
         .failure()
