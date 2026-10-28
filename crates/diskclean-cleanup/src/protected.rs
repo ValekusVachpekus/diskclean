@@ -80,6 +80,15 @@ impl ProtectedPaths {
         if is_root(&path) {
             return Err(ProtectedPathError::Protected { path });
         }
+        #[cfg(windows)]
+        if path.components().any(|component| match component {
+            Component::Normal(name) => ["System32", "WinSxS", "WindowsApps"]
+                .iter()
+                .any(|protected| name.to_string_lossy().eq_ignore_ascii_case(protected)),
+            _ => false,
+        }) {
+            return Err(ProtectedPathError::Protected { path });
+        }
 
         for root in &self.recursive {
             if is_same_or_descendant(&path, root) {
@@ -144,6 +153,7 @@ fn platform_roots() -> Vec<PathBuf> {
     .into_iter()
     .map(PathBuf::from)
     .collect();
+    roots.extend(diskclean_platform::user_dirs::system_directories());
     for variable in [
         "SystemRoot",
         "WINDIR",

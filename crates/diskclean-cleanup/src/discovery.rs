@@ -32,7 +32,7 @@ pub struct CleanupContext {
 impl CleanupContext {
     #[must_use]
     pub fn from_environment() -> Self {
-        let home = env_path("HOME").or_else(|| env_path("USERPROFILE"));
+        let home = diskclean_platform::home_dir();
         let cache = env_path("XDG_CACHE_HOME").or_else(|| home.as_ref().map(|h| h.join(".cache")));
         let local_data =
             env_path("XDG_DATA_HOME").or_else(|| home.as_ref().map(|h| h.join(".local/share")));
@@ -43,13 +43,18 @@ impl CleanupContext {
             .or_else(|| env_path("TEMP"))
             .or_else(|| env_path("TMP"))
             .or_else(|| {
+                if !cfg!(windows) {
+                    return Some(std::env::temp_dir());
+                }
                 local_app_data
                     .as_ref()
                     .map(|path| path.join("Temp"))
-                    .or_else(|| Some(PathBuf::from("/tmp")))
+                    .or_else(|| Some(std::env::temp_dir()))
             });
         let trash = local_data.as_ref().map(|path| path.join("Trash/files"));
-        let downloads = home.as_ref().map(|path| path.join("Downloads"));
+        let downloads = home
+            .as_ref()
+            .map(|path| diskclean_platform::downloads_dir(path, config.as_deref().unwrap_or(path)));
 
         Self {
             home,

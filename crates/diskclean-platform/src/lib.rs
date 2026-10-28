@@ -7,8 +7,10 @@
 
 pub mod file_meta;
 pub mod mounts;
+pub mod user_dirs;
 pub mod volumes;
 pub use mounts::MountPoints;
+pub use user_dirs::{downloads_dir, home_dir};
 
 pub use file_meta::{
     FileKind, FileMeta, check_path_components, metadata, open_regular_file, opened_identity,

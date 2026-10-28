@@ -19,11 +19,13 @@ safety audit. Stabilization takes priority over applications and similar media.
 - [x] S3: shared cancellable cleanup jobs in GUI/CLI, with per-item progress.
 - [x] S4: full-tree analysis index, correct sorting, consistent filters and
       localized issue summaries; automated 100k-node performance coverage.
-- [ ] S5: correct platform user directories, documentation/CI quality gates,
+- [x] S5: correct platform user directories, documentation and locked CI builds,
       final Linux tests and Windows cross-check.
 
 Real-display visual checks and interactive Windows testing remain separate
 release gates and must not be marked complete based on cross-compilation.
+The cargo-deny license gate remains part of packaging (Phase 7); cargo-deny is
+not installed locally and no license audit is claimed by these stabilization checks.
 
 ## Status snapshot
 
@@ -32,7 +34,7 @@ release gates and must not be marked complete based on cross-compilation.
 | U0 design foundation | Complete | tokens, themes, fonts/icons, i18n, settings persistence, headless harness |
 | U1 shell and navigation | Complete | command bar, navigation, inspector, status bar, recents/cache, progress/error states |
 | U2 Analyze workspace | Complete | tabs, sortable virtualized tables, treemap, filters, inspector, keyboard shortcuts |
-| U3 polish and quality | In progress | automated contrast, high-DPI, interaction, and Windows target checks pass; manual visual smoke, performance pass, snapshots, and screenshots remain |
+| U3 polish and quality | In progress | automated contrast, high-DPI, interaction, 100k-node headless rendering and Windows target checks pass; manual visual/performance smoke, snapshots and screenshots remain |
 | Phase 2 safe cleanup | Complete | rules, discovery, protected paths, revalidation, trash-only apply, audit log, GUI and CLI |
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Phase 4+ | Not started | applications/games, similar media, packaging |
@@ -457,6 +459,16 @@ backend covers success/error/cancel/changed-file; system commands never run.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-28 (S5): User profile/Downloads and protected system locations use
+  Windows Known Folders, including redirected folders and non-C installations.
+  Linux Downloads honors XDG user-dirs.dirs without executing shell syntax;
+  temporary-directory fallback uses the OS temp directory. CI builds/tests
+  use the lockfile. Verification: fmt, clippy with -D warnings, all 106 tests
+  and Windows workspace cross-check pass. The 100k-node index/query/headless
+  render regression completed in 1.50 seconds locally (debug build; not a
+  real-display scrolling benchmark). Locked offline Linux workspace release
+  build passes; binaries are in `target/release`.
 
 - 2026-10-28 (S4): Added a background-built full-tree AnalysisIndex retained
   with cached scans, cached query results and sorted child lists. Tables no

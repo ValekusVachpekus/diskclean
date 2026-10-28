@@ -167,7 +167,7 @@ UI/UX redesign U0–U2 complete (details in `docs/plan.md`):
 - [x] `docs/ui.md` design system, interaction, accessibility, and snapshot plan
 - [ ] U3 manual visual smoke, 100k performance pass, snapshots, screenshots
 
-Safe cleanup implemented; safety stabilization in progress (2026-10-28):
+Safe cleanup implemented; S1–S3 safety stabilization complete (2026-10-28):
 
 - [x] Built-in common/Linux/Windows TOML rules, including recommendation-only
       system commands
@@ -181,7 +181,7 @@ Safe cleanup implemented; safety stabilization in progress (2026-10-28):
 - [x] Cleanup tests cover protected paths, changed files, symlink
       substitution, audit failures, partial failures, and fake-backend cancel
 
-Exact duplicates implemented; scan-to-cleanup validation in progress:
+Exact duplicates implemented; scan-to-cleanup validation complete:
 
 - [x] Core size → bounded prefix hash → full BLAKE3 pipeline with progress,
       cancellation, bounded candidate collection, and issue reporting
@@ -205,8 +205,9 @@ system recommendation polish, and packaging.
 
 The 2026-10-28 review reopened safety and analyzer acceptance criteria. Follow
 the S1–S5 stabilization checklist in `docs/plan.md` before adding later phases.
-Known gaps include linked ancestors, directory descendants, timestamp precision,
-duplicate keeper validation, cancellation, and analysis indexing/filtering.
+The original gaps in linked ancestors, directory descendants, timestamp precision,
+duplicate keeper validation, cancellation, and analysis indexing/filtering are
+addressed by S1–S5 below.
 
 S1 complete: linked ancestors/reparse points, precise timestamps, complete
 directory manifests, mount boundaries, Windows roots, and post-audit validation
@@ -225,6 +226,14 @@ S4 implemented: full-tree background analysis indexing and cached queries,
 correct sort direction, filtered extension totals/sorting, localized issue
 summaries and path/category filters. A 100k-node headless regression covers
 indexing, query reuse and rendering; real-display performance remains a U3 gate.
+
+S5 complete: Windows Known Folders resolves redirected profile/Downloads and
+actual system paths; Linux honors XDG Downloads. CI uses locked dependencies.
+Verification on 2026-10-28: fmt, clippy -D warnings, 106 tests and Windows
+cross-check pass; Linux release binaries built. Test totals: cleanup 40, CLI 11, core 16, scan integration 9,
+GUI 24, platform 2, rules 4. The 100k-node debug index/query/render check takes
+1.50 s locally. Interactive smoke, snapshots/screenshots, cargo-deny and packaging
+remain open; see `docs/plan.md`.
 
 ## Roadmap
 

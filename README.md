@@ -48,6 +48,10 @@ explanation and a risk level.
 - Protected-path policy rejects system roots, profile roots, `System32`,
   `WinSxS`, `WindowsApps`, and similar locations before mutation.
 - Item revalidation (`dev`/inode/size/mtime) immediately before trashing.
+- Full-precision timestamps, complete directory manifests, linked-ancestor and
+  mount-boundary checks; incomplete or changed candidates are refused.
+- Background apply progress and Cancel/Escape; Ctrl+C cancels CLI cleanup
+  between trash operations while preserving the audit of completed work.
 - Deletion is move-to-OS-trash only. There is no permanent-delete fallback.
 - Every destructive action writes JSONL intent/result records.
 - System/admin cleanup is recommendation-only. Commands are displayed and can
@@ -63,6 +67,8 @@ explanation and a risk level.
   total savings, “select rest”, and “all except keepers”.
 - Selected copies use the same review basket and audited trash pipeline as
   cleanup.
+- Scan evidence is retained through selection; both copies and keepers are
+  revalidated and rehashed before cleanup.
 
 The UI is available in English and Russian at runtime. The system locale is
 used by default when detectable. There is no telemetry or network access.
@@ -119,6 +125,7 @@ The GUI tests use `egui_kittest` and do not open a desktop window.
   accessibility reference
 - [`AGENTS.md`](AGENTS.md) — contributor working agreement, safety invariants,
   dependencies, and status
+- [`docs/safety.md`](docs/safety.md) — validation guarantees and OS race limits
 
 ## License
 
