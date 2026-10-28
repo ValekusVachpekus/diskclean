@@ -262,6 +262,19 @@ real-display smoothness/visual acceptance remains open. Verification: all 112
 workspace tests (30 GUI), fmt, workspace clippy with -D warnings and Windows
 cross-check pass; Linux release GUI rebuilt.
 
+U3 shell consistency (2026-10-28): shared workspace headings, viewport-sized
+scrollable dialogs and path/size rows; tools-first navigation with an adaptive
+60 px icon rail and preserved sidebar widths; overlay inspector when docking
+would squeeze the workspace; responsive command bar, analysis table scrolling,
+numeric count columns and bounded filters/inspector/status/toasts. Destructive
+button text now meets 4.5:1 contrast in both themes. Added EN/RU regressions for
+480–1280 px command bars, narrow analysis tables, overlay/resize behavior and
+complete 600x480 modal bounds and long recommendation/card/basket text.
+Verification: fmt, workspace clippy with -D warnings, all 117 tests (35 GUI),
+Windows workspace cross-check and locked Linux release GUI build pass.
+Manual visual acceptance and pixel snapshots remain open; see `docs/plan.md`
+and `docs/ui.md`.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**

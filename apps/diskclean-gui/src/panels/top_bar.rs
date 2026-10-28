@@ -19,6 +19,7 @@ impl DiskCleanupApp {
         let mut inspector = false;
         let mut theme_toggle = false;
 
+        let compact = ui.available_width() < tokens::COMMAND_COMPACT_BREAKPOINT;
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(icons::APP)
@@ -33,43 +34,15 @@ impl DiskCleanupApp {
             );
             ui.add_space(10.0);
 
-            let path_width = (ui.available_width() - 330.0).clamp(80.0, 620.0);
-            let path_hint = self.text(Key::PathHint);
-            let path_response = ui
-                .add(
-                    TextEdit::singleline(&mut self.path_input)
-                        .id(path_field_id())
-                        .desired_width(path_width)
-                        .hint_text(path_hint)
-                        .margin(Margin::symmetric(9, 6)),
-                )
-                .on_hover_text(self.text(Key::Path));
-            if path_response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                scan = true;
-            }
-
-            if components::icon_button(ui, palette, icons::FOLDER_OPEN, self.text(Key::Browse))
-                .clicked()
-            {
-                browse = true;
-            }
-
-            let running = self.is_running();
-            if running {
-                if ui
-                    .add(
-                        Button::new(RichText::new(self.text(Key::Cancel)).color(palette.danger))
-                            .fill(palette.surface)
-                            .stroke(Stroke::new(1.0, palette.danger))
-                            .corner_radius(tokens::RADIUS_CONTROL)
-                            .min_size(vec2(72.0, 30.0)),
-                    )
-                    .clicked()
-                {
-                    cancel = true;
-                }
-            } else if components::primary_button(ui, palette, self.text(Key::Scan)).clicked() {
-                scan = true;
+            if !compact {
+                let width = (ui.available_width() - 160.0).max(180.0);
+                ui.allocate_ui_with_layout(
+                    vec2(width, 32.0),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        (browse, scan, cancel) = self.path_controls(ui);
+                    },
+                );
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -98,6 +71,13 @@ impl DiskCleanupApp {
                 }
             });
         });
+
+        if compact {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                (browse, scan, cancel) = self.path_controls(ui);
+            });
+        }
 
         if let ScanState::Running {
             estimated_bytes,
@@ -165,19 +145,17 @@ impl DiskCleanupApp {
                     .color(palette.muted)
                     .size(11.0),
                 );
-                ui.label(
-                    RichText::new(format::shorten_middle(&path.display().to_string(), 64))
+            });
+            let current = snapshot.current_path.as_deref().unwrap_or(path);
+            ui.add(
+                egui::Label::new(
+                    RichText::new(current.display().to_string())
                         .color(palette.muted)
                         .size(11.0),
-                );
-                if let Some(current) = &snapshot.current_path {
-                    ui.label(
-                        RichText::new(format::shorten_middle(&current.display().to_string(), 72))
-                            .color(palette.muted)
-                            .size(11.0),
-                    );
-                }
-            });
+                )
+                .truncate(),
+            )
+            .on_hover_text(current.display().to_string());
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
@@ -269,5 +247,61 @@ impl DiskCleanupApp {
                 crate::ui::theme::ThemeMode::Dark
             };
         }
+    }
+    fn path_controls(&mut self, ui: &mut egui::Ui) -> (bool, bool, bool) {
+        let palette = self.palette;
+        let mut result = (false, false, false);
+        let action = if self.is_running() {
+            self.text(Key::Cancel)
+        } else {
+            self.text(Key::Scan)
+        };
+        let action_width = ui
+            .painter()
+            .layout_no_wrap(action.to_owned(), FontId::proportional(13.0), palette.text)
+            .size()
+            .x
+            .max(72.0)
+            + 28.0;
+        let path_width = (ui.available_width() - action_width - 64.0).max(60.0);
+        let path_hint = self.text(Key::PathHint);
+        let path_response = ui
+            .add(
+                TextEdit::singleline(&mut self.path_input)
+                    .id(path_field_id())
+                    .desired_width(path_width)
+                    .hint_text(path_hint)
+                    .margin(Margin::symmetric(9, 6)),
+            )
+            .on_hover_text(self.text(Key::Path));
+        if path_response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+            result.1 = true;
+        }
+
+        if components::icon_button(ui, palette, icons::FOLDER_OPEN, self.text(Key::Browse))
+            .clicked()
+        {
+            result.0 = true;
+        }
+
+        let running = self.is_running();
+        if running {
+            if ui
+                .add(
+                    Button::new(RichText::new(self.text(Key::Cancel)).color(palette.danger))
+                        .fill(palette.surface)
+                        .stroke(Stroke::new(1.0, palette.danger))
+                        .corner_radius(tokens::RADIUS_CONTROL)
+                        .min_size(vec2(72.0, 30.0)),
+                )
+                .clicked()
+            {
+                result.2 = true;
+            }
+        } else if components::primary_button(ui, palette, self.text(Key::Scan)).clicked() {
+            result.1 = true;
+        }
+
+        result
     }
 }

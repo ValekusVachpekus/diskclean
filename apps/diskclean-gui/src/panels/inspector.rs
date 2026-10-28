@@ -4,11 +4,39 @@ use eframe::egui::{
     self, Align, Align2, Button, Color32, FontId, Frame, Layout, RichText, Sense, Stroke, vec2,
 };
 
-use crate::app::{DiskCleanupApp, kind_icon, kind_label};
+use crate::app::{DiskCleanupApp, Workspace, kind_icon, kind_label};
 use crate::i18n::Key;
 use crate::ui::{components, format, icons, theme, tokens};
 
 impl DiskCleanupApp {
+    pub(crate) fn inspector_dialog(&mut self, context: &egui::Context) {
+        if !self.wide && self.narrow_inspector && self.workspace == Workspace::Analyze {
+            let palette = self.palette;
+            let modal = egui::Modal::new(egui::Id::unique("narrow_inspector"))
+                .frame(
+                    Frame::new()
+                        .fill(palette.panel)
+                        .stroke(Stroke::new(1.0, palette.border))
+                        .corner_radius(tokens::RADIUS_CARD)
+                        .inner_margin(16),
+                )
+                .show(context, |ui| {
+                    let size = components::modal_size(context, 360.0);
+                    ui.set_width(size.x);
+                    ui.set_height(size.y.min(600.0));
+                    if components::icon_button(ui, palette, icons::CLOSE, self.text(Key::Close))
+                        .clicked()
+                    {
+                        self.narrow_inspector = false;
+                    }
+                    self.inspector(ui);
+                });
+            if modal.should_close() {
+                self.narrow_inspector = false;
+            }
+        }
+    }
+
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette;
         let Some(tree) = self.tree.clone() else {
@@ -48,11 +76,15 @@ impl DiskCleanupApp {
                             .color(palette.accent),
                     );
                     ui.vertical(|ui| {
-                        ui.label(
-                            RichText::new(node.display_name())
-                                .font(theme::semibold(15.0))
-                                .color(palette.text),
-                        );
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(node.display_name())
+                                    .font(theme::semibold(15.0))
+                                    .color(palette.text),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(node.display_name());
                         ui.add(
                             egui::Label::new(
                                 RichText::new(format::shorten_middle(
@@ -221,23 +253,46 @@ impl DiskCleanupApp {
                                 palette.surface_hover,
                             );
                         }
-                        ui.painter().text(
-                            egui::pos2(rect.left() + 5.0, rect.center().y),
-                            Align2::LEFT_CENTER,
+                        let size = format::size(self.language(), child_node.allocated_size);
+                        let size_width = ui
+                            .painter()
+                            .layout_no_wrap(size.clone(), FontId::monospace(10.5), palette.muted)
+                            .size()
+                            .x;
+                        let name_rect = egui::Rect::from_min_max(
+                            rect.min + vec2(5.0, 0.0),
+                            egui::pos2(rect.right() - size_width - 16.0, rect.bottom()),
+                        );
+                        let mut job = egui::text::LayoutJob::simple_singleline(
                             child_node.display_name(),
                             FontId::proportional(11.5),
                             palette.text,
                         );
+                        job.wrap.max_width = name_rect.width().max(0.0);
+                        job.wrap.max_rows = 1;
+                        job.wrap.break_anywhere = true;
+                        let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                        ui.painter()
+                            .with_clip_rect(name_rect.intersect(ui.clip_rect()))
+                            .galley(
+                                egui::pos2(
+                                    name_rect.left(),
+                                    rect.center().y - galley.size().y / 2.0,
+                                ),
+                                galley,
+                                palette.text,
+                            );
                         ui.painter().text(
                             egui::pos2(rect.right() - 5.0, rect.center().y),
                             Align2::RIGHT_CENTER,
-                            format::size(self.language(), child_node.allocated_size),
+                            size,
                             FontId::monospace(10.5),
                             palette.muted,
                         );
                         if response.clicked() {
                             chosen_child = Some(child);
                         }
+                        response.on_hover_text(tree.path(child).display().to_string());
                     }
                 }
 

@@ -15,3 +15,9 @@ pub(crate) const HEADER_HEIGHT: f32 = 32.0;
 pub(crate) const NAV_WIDTH: f32 = 236.0;
 pub(crate) const INSPECTOR_WIDTH: f32 = 300.0;
 pub(crate) const STATUS_BAR_HEIGHT: f32 = 26.0;
+
+// Responsive shell budgets in logical pixels; resizing must retain table space.
+pub(crate) const NAV_RAIL_WIDTH: f32 = 60.0;
+pub(crate) const NAV_COMPACT_BREAKPOINT: f32 = 1_000.0;
+pub(crate) const COMMAND_COMPACT_BREAKPOINT: f32 = 760.0;
+pub(crate) const WORKSPACE_MIN_WIDTH: f32 = 560.0;

@@ -42,6 +42,7 @@ use the same semantic names.
 | `muted` | `#8C99AA` | `#556373` |
 | `accent` | `#5EEAD4` | `#0B6B63` |
 | `on_accent` | `#062A26` | `#FFFFFF` |
+| `on_danger` | `#0E1116` | `#FFFFFF` |
 | `success` | `#5BD68A` | `#14703C` |
 | `warning` | `#F2B84B` | `#8B5500` |
 | `danger` | `#F06A6A` | `#B73225` |
@@ -55,7 +56,8 @@ Palette rules:
 
 - Body, muted, status, and treemap text must reach at least **4.5:1** contrast
   against every surface it can appear on.
-- `on_accent` is the only text color used on a filled accent button.
+- Filled accent buttons use `on_accent`; filled danger buttons use `on_danger`.
+  Both foreground/background pairs must reach 4.5:1 contrast.
 - Semantic colors are reserved for status and risk. They are not decoration.
 - Do not introduce new raw colors in screens; add a token and test its
   contrast.
@@ -91,8 +93,13 @@ lives in `apps/diskclean-gui/assets/icons/`. Icons are referenced through
 | Status bar height | 26 |
 
 The minimum supported window is **900x600**. The Analyze inspector is shown
-automatically on wide windows; narrow windows open it on demand. The shell is
-also exercised at 125% and 200% pixels-per-point in headless tests.
+automatically on wide windows only when at least 560 logical pixels remain for
+the workspace. Narrow windows open the inspector as a modal overlay. Below
+1000 logical pixels, navigation becomes a 60 px icon rail; returning to the full
+sidebar restores its previous width. Workspace links come before volumes and
+recent roots so many mounted volumes cannot bury the tools. Below 760 px the
+command bar uses a second row for the path and scan controls. The shell is also
+exercised at 125% and 200% pixels-per-point in headless tests.
 
 ## Shell layout
 
@@ -131,13 +138,19 @@ for future phases unless they explain what is coming and why they are disabled.
   row.
 - **Card:** panel/surface fill, 1 px border, 8 px radius, 8–12 px inner
   spacing.
+- **Workspace heading:** shared icon/title/subtitle component with wrapping
+  subtitles and consistent typography.
 - **Table:** 30 px virtualized rows, sortable headers, monospaced numeric
-  columns, right-aligned sizes.
+  columns, right-aligned sizes. A horizontal viewport preserves all columns
+  below the 560 px table budget. Count columns contain numbers; their headers
+  identify the unit. Long names truncate and expose full paths on hover.
 - **Review basket:** persistent selection summary with total size, clear
   selection, confirmation, and apply result. It never auto-selects items.
 - **Confirm dialog:** Cancel is focused when the dialog opens; destructive
   confirmation is disabled while busy; high-risk cleanup needs a separate
-  acknowledgement.
+  acknowledgement. Shared viewport sizing and vertical scrolling keep settings,
+  shortcuts, confirmations and the inspector within the window. Confirmation
+  rows reserve the size column before truncating paths.
 - **Toast:** short success/info/error message with an icon; detailed errors
   remain in the workspace error state.
 - **Empty/progress/error states:** every workspace must explain the current
@@ -205,7 +218,13 @@ without opening a desktop window. Current coverage includes:
 - cleanup rendering, no preselection, safe-select, high-risk acknowledgement,
   command-only cards, and filter empty states;
 - duplicate rendering, keeper/select-rest behavior, stale-root invalidation;
-- workspace shortcuts and fixture consistency.
+- workspace shortcuts and fixture consistency;
+- command actions at 480/760/900/1280 px with long paths in EN/RU;
+- narrow analysis tables, active filters and long names/issue paths;
+- icon-rail navigation, overlay inspector and sidebar widths across resizing;
+- complete modal bounds at 600x480, including high-risk confirmations;
+- long recommendation titles/descriptions and review-basket geometry in EN/RU
+  and both themes.
 
 Run the GUI tests with:
 
@@ -235,7 +254,8 @@ visual pass on Linux X11/Wayland and Windows. Manual checks must cover:
 - English and Russian, including long paths and rule explanations;
 - keyboard-only navigation, focus visibility, and dialog Escape handling;
 - treemap labels, muted metadata, disabled controls, and risk colors;
-- no clipped primary actions or horizontal scrollbars.
+- no clipped primary actions or accidental horizontal overflow; table
+  horizontal scrolling remains available when columns need more space.
 
 ## File map
 

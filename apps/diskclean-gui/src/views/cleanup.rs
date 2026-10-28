@@ -327,35 +327,20 @@ impl DiskCleanupApp {
 
     fn cleanup_header(&mut self, ui: &mut egui::Ui, has_report: bool) {
         let palette = self.palette;
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(icons::BROOM)
-                    .font(FontId::proportional(23.0))
-                    .color(palette.accent),
-            );
-            ui.vertical(|ui| {
-                ui.label(
-                    RichText::new(self.text(Key::Cleanup))
-                        .font(theme::semibold(21.0))
-                        .color(palette.text),
-                );
-                ui.label(
-                    RichText::new(self.text(Key::CleanupSubtitle))
-                        .color(palette.muted)
-                        .size(11.0),
-                );
-            });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let busy = self.cleanup.is_discovering() || self.cleanup.is_applying();
-                if !busy
-                    && has_report
-                    && components::secondary_button(ui, palette, self.text(Key::ScanAgain))
-                        .clicked()
-                {
-                    self.start_cleanup_discovery();
-                }
-            });
-        });
+        components::workspace_title(
+            ui,
+            palette,
+            icons::BROOM,
+            self.text(Key::Cleanup),
+            self.text(Key::CleanupSubtitle),
+        );
+        if !self.cleanup.is_discovering()
+            && !self.cleanup.is_applying()
+            && has_report
+            && components::secondary_button(ui, palette, self.text(Key::ScanAgain)).clicked()
+        {
+            self.start_cleanup_discovery();
+        }
 
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
@@ -817,42 +802,58 @@ impl DiskCleanupApp {
                                 palette.warning
                             }),
                     );
-                    ui.vertical(|ui| {
-                        if self.cleanup.is_applying() {
-                            ui.label(
-                                RichText::new(self.text(Key::Applying))
-                                    .font(theme::medium(11.5))
-                                    .color(palette.warning),
-                            );
-                        } else if selected_count == 0 {
-                            ui.label(
-                                RichText::new(self.text(Key::ReviewBasket))
+                    let action_width = ui
+                        .painter()
+                        .layout_no_wrap(
+                            self.text(Key::MoveToTrash).to_owned(),
+                            theme::medium(11.5),
+                            palette.text,
+                        )
+                        .size()
+                        .x
+                        + 32.0;
+                    let summary_width = (ui.available_width() - action_width - 16.0).max(40.0);
+                    ui.allocate_ui_with_layout(
+                        vec2(summary_width, 40.0),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                            if self.cleanup.is_applying() {
+                                ui.label(
+                                    RichText::new(self.text(Key::Applying))
+                                        .font(theme::medium(11.5))
+                                        .color(palette.warning),
+                                );
+                            } else if selected_count == 0 {
+                                ui.label(
+                                    RichText::new(self.text(Key::ReviewBasket))
+                                        .font(theme::medium(11.5))
+                                        .color(palette.text),
+                                );
+                                ui.label(
+                                    RichText::new(self.text(Key::ReviewBasketHint))
+                                        .color(palette.muted)
+                                        .size(10.0),
+                                );
+                            } else {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{}: {} · {}",
+                                        self.text(Key::ReviewBasket),
+                                        i18n::items_text(self.language(), selected_count as u64),
+                                        format::size(self.language(), selected_size)
+                                    ))
                                     .font(theme::medium(11.5))
                                     .color(palette.text),
-                            );
-                            ui.label(
-                                RichText::new(self.text(Key::ReviewBasketHint))
-                                    .color(palette.muted)
-                                    .size(10.0),
-                            );
-                        } else {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{}: {} · {}",
-                                    self.text(Key::ReviewBasket),
-                                    i18n::items_text(self.language(), selected_count as u64),
-                                    format::size(self.language(), selected_size)
-                                ))
-                                .font(theme::medium(11.5))
-                                .color(palette.text),
-                            );
-                            ui.label(
-                                RichText::new(self.text(Key::NothingPermanentlyDeleted))
-                                    .color(palette.muted)
-                                    .size(10.0),
-                            );
-                        }
-                    });
+                                );
+                                ui.label(
+                                    RichText::new(self.text(Key::NothingPermanentlyDeleted))
+                                        .color(palette.muted)
+                                        .size(10.0),
+                                );
+                            }
+                        },
+                    );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let enabled = self.cleanup.can_apply()
                             && self.cleanup.audit_path.is_some()
@@ -861,7 +862,7 @@ impl DiskCleanupApp {
                             enabled,
                             Button::new(
                                 RichText::new(self.text(Key::MoveToTrash))
-                                    .color(Color32::WHITE)
+                                    .color(palette.on_danger())
                                     .font(theme::medium(11.5)),
                             )
                             .fill(if enabled {
@@ -1091,180 +1092,164 @@ impl DiskCleanupApp {
                     .inner_margin(20),
             )
             .show(context, |ui| {
-                ui.set_width(560.0);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(icons::TRASH)
-                            .font(FontId::proportional(21.0))
-                            .color(palette.danger),
-                    );
-                    ui.label(
-                        RichText::new(self.text(Key::MoveToTrashTitle))
-                            .font(theme::semibold(18.0))
-                            .color(palette.text),
-                    );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if components::icon_button(ui, palette, icons::CLOSE, self.text(Key::Close))
-                            .clicked()
-                        {
-                            close = true;
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(self.text(Key::MoveToTrashBody))
-                        .color(palette.muted)
-                        .size(11.5),
-                );
-                ui.add_space(8.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        RichText::new(i18n::items_text(self.language(), selected.len() as u64))
-                            .font(theme::medium(11.5))
-                            .color(palette.text),
-                    );
-                    ui.label(RichText::new("·").color(palette.muted).size(10.0));
-                    ui.label(
-                        RichText::new(format::size(self.language(), total_size))
-                            .font(FontId::monospace(11.0))
-                            .color(palette.text),
-                    );
-                    if let Some(path) = &audit_path {
-                        ui.label(RichText::new("·").color(palette.muted).size(10.0));
-                        ui.label(
-                            RichText::new(self.text(Key::AuditLog))
-                                .color(palette.muted)
-                                .size(10.0),
-                        );
-                        ui.label(
-                            RichText::new(format::shorten_middle(&path.display().to_string(), 38))
-                                .font(FontId::monospace(9.5))
-                                .color(palette.muted),
-                        );
-                    }
-                });
-                ui.add_space(8.0);
-                Frame::new()
-                    .fill(palette.surface)
-                    .stroke(Stroke::new(1.0, palette.border))
-                    .corner_radius(tokens::RADIUS_CARD)
-                    .inner_margin(8)
+                let size = components::modal_size(context, 560.0);
+                ui.set_width(size.x);
+                ScrollArea::vertical()
+                    .id_salt("cleanup_confirm_content")
+                    .max_height(size.y)
                     .show(ui, |ui| {
-                        ScrollArea::vertical()
-                            .id_salt("cleanup_confirm_list")
-                            .max_height(220.0)
-                            .show(ui, |ui| {
-                                for item in &selected {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new(if item.risk == Risk::High {
-                                                icons::WARNING
-                                            } else {
-                                                icons::FILE
-                                            })
-                                            .font(FontId::proportional(11.0))
-                                            .color(
-                                                if item.risk == Risk::High {
-                                                    palette.warning
-                                                } else {
-                                                    palette.muted
-                                                },
-                                            ),
-                                        );
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new(item.path.display().to_string())
-                                                    .font(FontId::monospace(10.0)),
-                                            )
-                                            .truncate(),
-                                        )
-                                        .on_hover_text(item.path.display().to_string());
-                                        ui.with_layout(
-                                            Layout::right_to_left(Align::Center),
-                                            |ui| {
-                                                ui.label(
-                                                    RichText::new(format::size(
-                                                        self.language(),
-                                                        item.size(),
-                                                    ))
-                                                    .font(FontId::monospace(10.0))
-                                                    .color(palette.muted),
-                                                );
-                                            },
-                                        );
-                                    });
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(icons::TRASH)
+                                    .font(FontId::proportional(21.0))
+                                    .color(palette.danger),
+                            );
+                            ui.label(
+                                RichText::new(self.text(Key::MoveToTrashTitle))
+                                    .font(theme::semibold(18.0))
+                                    .color(palette.text),
+                            );
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if components::icon_button(
+                                    ui,
+                                    palette,
+                                    icons::CLOSE,
+                                    self.text(Key::Close),
+                                )
+                                .clicked()
+                                {
+                                    close = true;
                                 }
                             });
-                    });
-                if high_risk {
-                    ui.add_space(8.0);
-                    Frame::new()
-                        .fill(Color32::from_rgba_unmultiplied(
-                            palette.warning.r(),
-                            palette.warning.g(),
-                            palette.warning.b(),
-                            if palette.is_dark() { 28 } else { 16 },
-                        ))
-                        .stroke(Stroke::new(1.0, palette.warning))
-                        .corner_radius(tokens::RADIUS_CONTROL)
-                        .inner_margin(9)
-                        .show(ui, |ui| {
-                            ui.checkbox(
-                                &mut acknowledge,
-                                RichText::new(self.text(Key::HighRiskAck))
-                                    .color(palette.text)
-                                    .size(11.0),
-                            );
                         });
-                }
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(self.text(Key::NothingPermanentlyDeleted))
-                        .color(palette.muted)
-                        .size(10.5),
-                );
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(self.text(Key::Cancel))
-                            .color(palette.muted)
-                            .size(10.5),
-                    );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let enabled = !high_risk || acknowledge;
-                        if ui
-                            .add_enabled(
-                                enabled,
-                                Button::new(
-                                    RichText::new(self.text(Key::MoveToTrash))
-                                        .color(Color32::WHITE)
-                                        .font(theme::medium(11.5)),
-                                )
-                                .fill(if enabled {
-                                    palette.danger
-                                } else {
-                                    palette.surface_hover
-                                })
-                                .stroke(Stroke::new(1.0, palette.danger))
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(self.text(Key::MoveToTrashBody))
+                                .color(palette.muted)
+                                .size(11.5),
+                        );
+                        ui.add_space(8.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(i18n::items_text(
+                                    self.language(),
+                                    selected.len() as u64,
+                                ))
+                                .font(theme::medium(11.5))
+                                .color(palette.text),
+                            );
+                            ui.label(RichText::new("·").color(palette.muted).size(10.0));
+                            ui.label(
+                                RichText::new(format::size(self.language(), total_size))
+                                    .font(FontId::monospace(11.0))
+                                    .color(palette.text),
+                            );
+                            if let Some(path) = &audit_path {
+                                ui.label(RichText::new("·").color(palette.muted).size(10.0));
+                                ui.label(
+                                    RichText::new(self.text(Key::AuditLog))
+                                        .color(palette.muted)
+                                        .size(10.0),
+                                );
+                                ui.label(
+                                    RichText::new(format::shorten_middle(
+                                        &path.display().to_string(),
+                                        38,
+                                    ))
+                                    .font(FontId::monospace(9.5))
+                                    .color(palette.muted),
+                                );
+                            }
+                        });
+                        ui.add_space(8.0);
+                        Frame::new()
+                            .fill(palette.surface)
+                            .stroke(Stroke::new(1.0, palette.border))
+                            .corner_radius(tokens::RADIUS_CARD)
+                            .inner_margin(8)
+                            .show(ui, |ui| {
+                                ScrollArea::vertical()
+                                    .id_salt("cleanup_confirm_list")
+                                    .max_height(220.0)
+                                    .show(ui, |ui| {
+                                        for item in &selected {
+                                            components::path_size_row(
+                                                ui,
+                                                palette,
+                                                icons::FILE,
+                                                &item.path.display().to_string(),
+                                                &format::size(self.language(), item.size()),
+                                            );
+                                        }
+                                    });
+                            });
+                        if high_risk {
+                            ui.add_space(8.0);
+                            Frame::new()
+                                .fill(Color32::from_rgba_unmultiplied(
+                                    palette.warning.r(),
+                                    palette.warning.g(),
+                                    palette.warning.b(),
+                                    if palette.is_dark() { 28 } else { 16 },
+                                ))
+                                .stroke(Stroke::new(1.0, palette.warning))
                                 .corner_radius(tokens::RADIUS_CONTROL)
-                                .min_size(vec2(0.0, 30.0)),
-                            )
-                            .clicked()
-                        {
-                            confirm = true;
+                                .inner_margin(9)
+                                .show(ui, |ui| {
+                                    ui.checkbox(
+                                        &mut acknowledge,
+                                        RichText::new(self.text(Key::HighRiskAck))
+                                            .color(palette.text)
+                                            .size(11.0),
+                                    );
+                                });
                         }
-                        let cancel =
-                            components::secondary_button(ui, palette, self.text(Key::Cancel));
-                        if self.cleanup.confirm_focus_pending {
-                            cancel.request_focus();
-                            self.cleanup.confirm_focus_pending = false;
-                        }
-                        if cancel.clicked() {
-                            close = true;
-                        }
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(self.text(Key::NothingPermanentlyDeleted))
+                                .color(palette.muted)
+                                .size(10.5),
+                        );
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let enabled = !high_risk || acknowledge;
+                                if ui
+                                    .add_enabled(
+                                        enabled,
+                                        Button::new(
+                                            RichText::new(self.text(Key::MoveToTrash))
+                                                .color(palette.on_danger())
+                                                .font(theme::medium(11.5)),
+                                        )
+                                        .fill(if enabled {
+                                            palette.danger
+                                        } else {
+                                            palette.surface_hover
+                                        })
+                                        .stroke(Stroke::new(1.0, palette.danger))
+                                        .corner_radius(tokens::RADIUS_CONTROL)
+                                        .min_size(vec2(0.0, 30.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    confirm = true;
+                                }
+                                let cancel = components::secondary_button(
+                                    ui,
+                                    palette,
+                                    self.text(Key::Cancel),
+                                );
+                                if self.cleanup.confirm_focus_pending {
+                                    cancel.request_focus();
+                                    self.cleanup.confirm_focus_pending = false;
+                                }
+                                if cancel.clicked() {
+                                    close = true;
+                                }
+                            });
+                        });
                     });
-                });
             });
 
         self.cleanup.acknowledge_high_risk = acknowledge;
@@ -1301,22 +1286,6 @@ fn cleanup_rule_card(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 risk_badge(ui, palette, language, rule.risk);
-                ui.vertical(|ui| {
-                    ui.label(
-                        RichText::new(rule.title.localized(language.is_russian()))
-                            .font(theme::semibold(13.0))
-                            .color(palette.text),
-                    );
-                    ui.label(
-                        RichText::new(format!(
-                            "{} · {}",
-                            category_text(language, rule.category),
-                            recommendation.count()
-                        ))
-                        .color(palette.muted)
-                        .size(9.5),
-                    );
-                });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(
                         RichText::new(format::size(language, recommendation.total_bytes()))
@@ -1325,6 +1294,23 @@ fn cleanup_rule_card(
                     );
                 });
             });
+            ui.add(
+                egui::Label::new(
+                    RichText::new(rule.title.localized(language.is_russian()))
+                        .font(theme::semibold(13.0))
+                        .color(palette.text),
+                )
+                .wrap(),
+            );
+            ui.label(
+                RichText::new(format!(
+                    "{} · {}",
+                    category_text(language, rule.category),
+                    recommendation.count()
+                ))
+                .color(palette.muted)
+                .size(10.0),
+            );
             ui.add_space(4.0);
             ui.label(
                 RichText::new(rule.description.localized(language.is_russian()))
@@ -1466,16 +1452,7 @@ fn cleanup_command_card(
                     .corner_radius(tokens::RADIUS_CONTROL)
                     .inner_margin(Margin::symmetric(8, 6))
                     .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(&command.command)
-                                        .font(FontId::monospace(10.5))
-                                        .color(palette.text),
-                                )
-                                .truncate(),
-                            )
-                            .on_hover_text(&command.command);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if components::icon_button(
                                 ui,
                                 palette,
@@ -1486,6 +1463,17 @@ fn cleanup_command_card(
                             {
                                 actions.push(CleanupUiAction::CopyCommand(command.command.clone()));
                             }
+                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&command.command)
+                                            .font(FontId::monospace(10.5))
+                                            .color(palette.text),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(&command.command);
+                            });
                         });
                     });
                 if let Some(note) = &command.note {

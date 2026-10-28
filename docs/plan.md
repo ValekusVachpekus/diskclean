@@ -460,6 +460,26 @@ backend covers success/error/cancel/changed-file; system commands never run.
 
 ## Progress log
 
+- 2026-10-28 (U3 shell and layout consistency): Unified Cleanup/Duplicates
+  headings and shared modal sizing/path-size rows. Navigation puts tools first
+  and switches to a 60 px icon rail below 1000 logical pixels, preserving the
+  full sidebar width across resize cycles. Inspector opens as an overlay when
+  the dock would leave less than 560 px for the workspace. Command controls use
+  a separate row below 760 px and reserve measured button widths. Long inspector
+  names, child rows, status summaries and toasts are bounded; numeric columns
+  remain distinct from paths. Analysis tables keep all columns available through
+  horizontal scrolling; counts are numeric and filter controls wrap. Settings,
+  help and trash confirmations fit the viewport with scrolling, including
+  high-risk acknowledgements. Danger-button foregrounds now meet 4.5:1 contrast
+  in both themes. Five new headless regressions cover command geometry, narrow
+  analysis tabs, compact navigation/overlay/resize persistence and complete
+  modal bounds at 600x480 and long recommendation text/basket geometry in EN/RU.
+  Cleanup cards separate risk/size from wrapping titles; command copy controls
+  reserve their own column. Manual real-display acceptance and pixel
+  snapshots remain open. Verification: fmt, workspace clippy with -D warnings,
+  all 117 workspace tests (35 GUI), Windows workspace cross-check and locked
+  Linux release GUI build pass.
+
 - 2026-10-28 (U3 duplicates polish): Groups now start collapsed and toggle from
   the header. Viewport culling covers both group cards and file rows inside
   expanded groups, with fixed geometry and stable widget IDs. Duplicate numeric

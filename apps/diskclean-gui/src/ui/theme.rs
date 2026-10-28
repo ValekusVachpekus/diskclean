@@ -103,6 +103,11 @@ impl Palette {
     }
 
     #[must_use]
+    pub(crate) fn on_danger(self) -> Color32 {
+        if self.dark { self.bg } else { Color32::WHITE }
+    }
+
+    #[must_use]
     pub(crate) fn accent_soft(self) -> Color32 {
         Color32::from_rgba_unmultiplied(
             self.accent.r(),
@@ -393,6 +398,11 @@ mod tests {
                     );
                 }
             }
+            assert_readable(
+                &format!("{name} danger button"),
+                palette.on_danger(),
+                palette.danger,
+            );
             assert_readable(
                 &format!("{name} on-accent text"),
                 palette.on_accent,

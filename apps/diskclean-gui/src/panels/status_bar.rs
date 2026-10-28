@@ -1,6 +1,6 @@
 //! Global status bar.
 
-use eframe::egui::{self, Align, FontId, Layout, RichText};
+use eframe::egui::{self, FontId, RichText};
 
 use crate::app::{DiskCleanupApp, ScanState, files_label, folders_label, issues_label};
 use crate::i18n::Key;
@@ -36,67 +36,35 @@ impl DiskCleanupApp {
             ui.label(RichText::new(label).color(color).size(10.5));
 
             if let Some(tree) = &self.tree {
-                ui.label(RichText::new("·").color(palette.muted).size(10.0));
-                ui.label(
-                    RichText::new(format!(
-                        "{} {}",
-                        format::size(self.language(), tree.stats.allocated_bytes),
-                        self.text(Key::OnDisk)
-                    ))
-                    .color(palette.muted)
-                    .size(10.5),
+                let mut details = format!(
+                    "{} {} · {}",
+                    format::size(self.language(), tree.stats.allocated_bytes),
+                    self.text(Key::OnDisk),
+                    files_label(self.language(), tree.stats.files),
                 );
-                ui.label(RichText::new("·").color(palette.muted).size(10.0));
-                if compact {
-                    ui.label(
-                        RichText::new(files_label(self.language(), tree.stats.files))
-                            .color(palette.muted)
-                            .size(10.5),
-                    );
-                } else {
-                    ui.label(
-                        RichText::new(format!(
-                            "{} · {}",
-                            files_label(self.language(), tree.stats.files),
-                            folders_label(self.language(), tree.stats.directories)
-                        ))
-                        .color(palette.muted)
-                        .size(10.5),
-                    );
-                    ui.label(RichText::new("·").color(palette.muted).size(10.0));
-                    let issue_color = if tree.issues.is_empty() {
-                        palette.muted
-                    } else {
-                        palette.warning
-                    };
-                    ui.label(
-                        RichText::new(issues_label(self.language(), tree.issues.len() as u64))
-                            .color(issue_color)
-                            .size(10.5),
-                    );
+                if !compact {
+                    details.push_str(&format!(
+                        " · {} · {} · {} {}",
+                        folders_label(self.language(), tree.stats.directories),
+                        issues_label(self.language(), tree.issues.len() as u64),
+                        self.text(Key::ScannedIn),
+                        format::duration(self.language(), tree.duration_ms),
+                    ));
                 }
-            }
-
-            if !compact {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(
+                ui.add(
+                    egui::Label::new(RichText::new(&details).color(palette.muted).size(10.5))
+                        .truncate(),
+                )
+                .on_hover_text(format!("{details}\n{}", tree.root_path.display()));
+            } else {
+                ui.add(
+                    egui::Label::new(
                         RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                             .color(palette.muted)
                             .size(10.0),
-                    );
-                    if let Some(tree) = &self.tree {
-                        ui.label(RichText::new("·").color(palette.muted).size(10.0));
-                        ui.label(
-                            RichText::new(format!(
-                                "{} {}",
-                                self.text(Key::ScannedIn),
-                                format::duration(self.language(), tree.duration_ms)
-                            ))
-                            .color(palette.muted)
-                            .size(10.0),
-                        );
-                    }
-                });
+                    )
+                    .truncate(),
+                );
             }
         });
     }

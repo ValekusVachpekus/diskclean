@@ -536,6 +536,7 @@ impl DiskCleanupApp {
             || self.help_open
             || self.cleanup.confirm_open
             || self.duplicates.confirm_open
+            || (!self.wide && self.narrow_inspector && self.workspace == Workspace::Analyze)
         {
             return;
         }
@@ -711,11 +712,19 @@ impl DiskCleanupApp {
         self.poll_cleanup(&context);
         self.poll_duplicates(&context);
 
-        self.wide = ui.available_width() >= 1_180.0;
+        let compact_navigation = ui.available_width() < tokens::NAV_COMPACT_BREAKPOINT;
+        let navigation_width = if compact_navigation {
+            tokens::NAV_RAIL_WIDTH
+        } else {
+            self.settings.sidebar_width
+        };
+        self.wide = ui.available_width() >= 1_180.0
+            && ui.available_width() - navigation_width - self.settings.inspector_width
+                >= tokens::WORKSPACE_MIN_WIDTH;
         let show_inspector = self.workspace == Workspace::Analyze
             && self.tree.is_some()
             && self.settings.inspector_open
-            && (self.wide || self.narrow_inspector);
+            && self.wide;
 
         let panel_fill = self.palette.panel;
         let bg = self.palette.bg;
@@ -729,18 +738,32 @@ impl DiskCleanupApp {
             )
             .show(ui, |ui| self.top_bar(ui));
 
-        let navigation = egui::Panel::left("navigation")
-            .resizable(true)
-            .default_size(self.settings.sidebar_width)
-            .min_size(196.0)
-            .max_size(320.0)
-            .frame(
-                Frame::new()
-                    .fill(panel_fill)
-                    .inner_margin(Margin::symmetric(10, 10)),
-            )
-            .show(ui, |ui| self.navigation(ui));
-        self.settings.sidebar_width = navigation.response.rect.width();
+        let navigation = egui::Panel::left(if compact_navigation {
+            "navigation_rail"
+        } else {
+            "navigation"
+        })
+        .resizable(!compact_navigation)
+        .default_size(navigation_width)
+        .min_size(if compact_navigation {
+            tokens::NAV_RAIL_WIDTH
+        } else {
+            196.0
+        })
+        .max_size(if compact_navigation {
+            tokens::NAV_RAIL_WIDTH
+        } else {
+            320.0
+        })
+        .frame(
+            Frame::new()
+                .fill(panel_fill)
+                .inner_margin(Margin::symmetric(10, 10)),
+        )
+        .show(ui, |ui| self.navigation(ui));
+        if !compact_navigation {
+            self.settings.sidebar_width = navigation.response.rect.width();
+        }
 
         if show_inspector {
             let response = egui::Panel::right("inspector")
@@ -774,6 +797,8 @@ impl DiskCleanupApp {
                     .inner_margin(Margin::symmetric(18, 14)),
             )
             .show(ui, |ui| self.central(ui));
+
+        self.inspector_dialog(&context);
 
         self.settings_dialog(&context);
         self.help_dialog(&context);

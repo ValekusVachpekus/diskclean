@@ -1078,3 +1078,219 @@ fn duplicate_summary_and_list_fit_both_languages_and_themes() {
         }
     }
 }
+
+#[test]
+fn command_bar_keeps_actions_inside_compact_and_wide_viewports() {
+    for language in [Language::English, Language::Russian] {
+        for width in [480.0, 760.0, 900.0, 1280.0] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.path_input = format!("/{}", "очень-длинный-путь/".repeat(40));
+            let mut harness = Harness::builder()
+                .with_size(Vec2::new(width, 600.0))
+                .with_accessibility_check(false)
+                .with_context_setup(theme::install_fonts)
+                .build_ui_state(|ui, app: &mut DiskCleanupApp| app.top_bar(ui), app);
+            harness.run();
+            for key in [
+                crate::i18n::Key::Scan,
+                crate::i18n::Key::Help,
+                crate::i18n::Key::Settings,
+            ] {
+                let rect = harness.get_by_label(language.text(key)).rect();
+                assert!(
+                    rect.left() >= 0.0 && rect.right() <= width,
+                    "{key:?}: {rect:?} at {width}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn analysis_tables_and_filters_stay_inside_narrow_workspaces() {
+    for language in [Language::English, Language::Russian] {
+        for tab in [Tab::Files, Tab::Folders, Tab::Types, Tab::Issues] {
+            let mut tree = fixture_tree();
+            tree.nodes[1].name = "длинное-имя".repeat(80).into();
+            tree.issues.push(diskclean_core::ScanIssue::new(
+                PathBuf::from(format!("/{}", "длинный-путь/".repeat(50))),
+                diskclean_core::IssueKind::PermissionDenied,
+                "technical details",
+            ));
+            let mut app = DiskCleanupApp::new_for_test(english_settings(), Some(Arc::new(tree)));
+            app.settings.language = language;
+            app.tab = tab;
+            app.filters.min_size = "1".into();
+            let mut harness = Harness::builder()
+                .with_size(Vec2::new(480.0, 600.0))
+                .with_accessibility_check(false)
+                .with_context_setup(theme::install_fonts)
+                .build_ui_state(
+                    |ui, state: &mut (DiskCleanupApp, f32)| {
+                        let right = ui.max_rect().right();
+                        state.0.central(ui);
+                        state.1 = ui.min_rect().right() - right;
+                    },
+                    (app, 0.0),
+                );
+            harness.run();
+            assert!(
+                harness.state().1 <= 1.0,
+                "{tab:?}: overflow {}",
+                harness.state().1
+            );
+        }
+    }
+}
+
+#[test]
+fn compact_navigation_and_inspector_preserve_sidebar_preferences() {
+    let mut app = test_app(english_settings(), true);
+    app.settings.sidebar_width = 280.0;
+    app.settings.inspector_open = false;
+    let mut harness = harness(app, Vec2::new(900.0, 600.0));
+    assert_eq!(harness.state().settings.sidebar_width, 280.0);
+    let duplicates = harness.get_by_label("Duplicates").rect();
+    assert!(duplicates.width() <= 45.0, "compact icon rail");
+    harness.get_by_label("Selection").click();
+    harness.run();
+    assert!(harness.state().narrow_inspector);
+    assert!(!harness.state().wide);
+    assert_eq!(harness.state().settings.sidebar_width, 280.0);
+    harness.get_by_label("Close").click();
+    harness.run();
+    assert!(!harness.state().narrow_inspector);
+    harness.set_size(Vec2::new(1280.0, 820.0));
+    harness.run();
+    assert!((harness.state().settings.sidebar_width - 280.0).abs() <= 1.0);
+    harness.set_size(Vec2::new(900.0, 600.0));
+    harness.run();
+    harness.set_size(Vec2::new(1280.0, 820.0));
+    harness.run();
+    assert!((harness.state().settings.sidebar_width - 280.0).abs() <= 1.0);
+}
+
+#[test]
+fn dialogs_fit_short_viewports_in_both_languages() {
+    for language in [Language::English, Language::Russian] {
+        for dialog in ["settings", "help", "cleanup", "duplicates"] {
+            let (_temp, report, _safe, mut high) = cleanup_fixture();
+            high.path = PathBuf::from(format!("/{}", "длинный-путь/".repeat(40)));
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.cleanup.report = Some(report);
+            app.cleanup.selected.insert(high.path.clone(), high);
+            app.cleanup.confirm_open = dialog == "cleanup";
+            app.cleanup.confirm_focus_pending = dialog == "cleanup";
+            app.settings_open = dialog == "settings";
+            app.help_open = dialog == "help";
+            if dialog == "duplicates" {
+                let report = duplicate_ui_fixture();
+                app.duplicates.report = Some(report.clone());
+                app.duplicates
+                    .select_rest(&report.groups[0])
+                    .expect("select copies");
+                app.duplicates.confirm_open = true;
+                app.duplicates.confirm_focus_pending = true;
+            }
+            let mut harness = Harness::builder()
+                .with_size(Vec2::new(600.0, 480.0))
+                .with_accessibility_check(false)
+                .with_context_setup(theme::install_fonts)
+                .build_ui_state(
+                    |ui, app: &mut DiskCleanupApp| {
+                        let ctx = ui.ctx();
+                        app.settings_dialog(ctx);
+                        app.help_dialog(ctx);
+                        app.cleanup_confirm_dialog(ctx);
+                        app.duplicates_confirm_dialog(ctx);
+                    },
+                    app,
+                );
+            harness.run();
+            let key = if dialog == "settings" || dialog == "help" {
+                crate::i18n::Key::Close
+            } else {
+                crate::i18n::Key::MoveToTrashTitle
+            };
+            let rect = harness
+                .query_all_by_label(language.text(key))
+                .next()
+                .expect("dialog control")
+                .rect();
+            assert!(
+                rect.left() >= 0.0
+                    && rect.right() <= 600.0
+                    && rect.top() >= 0.0
+                    && rect.bottom() <= 480.0,
+                "{dialog}: {rect:?}"
+            );
+            let id = match dialog {
+                "settings" => "settings_modal",
+                "help" => "help_modal",
+                "cleanup" => "cleanup_confirm_modal",
+                _ => "duplicates_confirm_modal",
+            };
+            let bounds = harness
+                .ctx
+                .memory(|memory| memory.area_rect(egui::Id::unique(id)))
+                .expect("modal bounds");
+            assert!(
+                bounds.left() >= 0.0
+                    && bounds.top() >= 0.0
+                    && bounds.right() <= 600.0
+                    && bounds.bottom() <= 480.0,
+                "{dialog} bounds: {bounds:?}"
+            );
+            assert!(!harness.state().cleanup.is_applying());
+            assert!(!harness.state().duplicates.is_applying());
+        }
+    }
+}
+
+#[test]
+fn cleanup_cards_and_basket_fit_long_localized_rule_text() {
+    for language in [Language::English, Language::Russian] {
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let (_temp, mut report, safe, high) = cleanup_fixture();
+            for recommendation in &mut report.recommendations {
+                recommendation.rule.title =
+                    LocalizedText::english("Длинное название рекомендации ".repeat(10));
+                recommendation.rule.description =
+                    LocalizedText::english("Подробное объяснение рекомендации ".repeat(20));
+            }
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = mode;
+            app.palette = theme::Palette::for_theme(mode, None);
+            app.cleanup.report = Some(report);
+            app.cleanup.selected.insert(safe.path.clone(), safe);
+            app.cleanup.selected.insert(high.path.clone(), high);
+            let mut harness = Harness::builder()
+                .with_size(Vec2::new(480.0, 900.0))
+                .with_accessibility_check(false)
+                .with_context_setup(move |ctx| {
+                    theme::install_fonts(ctx);
+                    theme::apply(ctx, mode);
+                })
+                .build_ui_state(
+                    |ui, state: &mut (DiskCleanupApp, f32)| {
+                        let right = ui.max_rect().right();
+                        state.0.cleanup_workspace(ui);
+                        state.1 = ui.min_rect().right() - right;
+                    },
+                    (app, 0.0),
+                );
+            harness.run();
+            assert!(harness.state().1 <= 1.0, "overflow: {}", harness.state().1);
+            let action = harness
+                .get_by_label(language.text(crate::i18n::Key::MoveToTrash))
+                .rect();
+            assert!(
+                action.right() <= 480.0 && action.bottom() <= 900.0,
+                "basket action: {action:?}"
+            );
+        }
+    }
+}

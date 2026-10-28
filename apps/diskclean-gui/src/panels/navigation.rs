@@ -13,7 +13,11 @@ impl DiskCleanupApp {
     pub(crate) fn navigation(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette;
         let width = ui.available_width();
-        let content_height = (ui.available_height() - 82.0).max(160.0);
+        if width < 100.0 {
+            self.navigation_rail(ui);
+            return;
+        }
+        let content_height = (ui.available_height() - 82.0).max(40.0);
 
         ui.allocate_ui_with_layout(
             vec2(width, content_height),
@@ -63,6 +67,8 @@ impl DiskCleanupApp {
         let palette = self.palette;
         let width = ui.available_width();
 
+        self.navigation_tools(ui);
+        ui.add_space(8.0);
         components::section_label(ui, palette, self.text(Key::Volumes));
         ui.horizontal(|ui| {
             ui.label(
@@ -111,7 +117,7 @@ impl DiskCleanupApp {
                 .corner_radius(tokens::RADIUS_CARD)
                 .inner_margin(9)
                 .show(ui, |ui| {
-                    ui.set_width((width - 18.0).max(80.0));
+                    ui.set_width((width - 20.0).max(80.0));
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new(icons::VOLUME)
@@ -269,6 +275,11 @@ impl DiskCleanupApp {
             }
         }
 
+        ui.add_space(10.0);
+    }
+    fn navigation_tools(&mut self, ui: &mut egui::Ui) {
+        let palette = self.palette;
+        let width = ui.available_width();
         components::section_label(ui, palette, self.text(Key::Tools));
         if components::nav_item(
             ui,
@@ -321,7 +332,44 @@ impl DiskCleanupApp {
             false,
         );
         applications.on_hover_text(self.text(Key::Soon));
+    }
 
-        ui.add_space(10.0);
+    fn navigation_rail(&mut self, ui: &mut egui::Ui) {
+        let palette = self.palette;
+        for (workspace, icon, key) in [
+            (Workspace::Analyze, icons::CHART, Key::Analyze),
+            (Workspace::Cleanup, icons::BROOM, Key::Cleanup),
+            (Workspace::Duplicates, icons::DUPLICATES, Key::Duplicates),
+        ] {
+            let selected = self.workspace == workspace;
+            let response = ui.add(
+                egui::Button::new(RichText::new(icon).size(19.0).color(if selected {
+                    palette.accent
+                } else {
+                    palette.muted
+                }))
+                .min_size(vec2(ui.available_width(), 38.0))
+                .fill(if selected {
+                    palette.accent_soft()
+                } else {
+                    Color32::TRANSPARENT
+                })
+                .stroke(Stroke::NONE)
+                .corner_radius(tokens::RADIUS_CONTROL),
+            );
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::Role::Button, true, self.text(key))
+            });
+            if response.on_hover_text(self.text(key)).clicked() {
+                self.workspace = workspace;
+            }
+        }
+        ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
+            if components::icon_button(ui, palette, icons::SETTINGS, self.text(Key::Settings))
+                .clicked()
+            {
+                self.settings_open = true;
+            }
+        });
     }
 }

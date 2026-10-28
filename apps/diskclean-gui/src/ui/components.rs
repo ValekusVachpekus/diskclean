@@ -38,6 +38,36 @@ pub(crate) fn secondary_button(ui: &mut Ui, palette: Palette, text: &str) -> Res
     )
 }
 
+/// All dialogs share the same viewport budget, including at high UI scaling.
+pub(crate) fn modal_size(context: &egui::Context, preferred_width: f32) -> egui::Vec2 {
+    let viewport = context.content_rect().size();
+    vec2(
+        preferred_width.min((viewport.x - 72.0).max(240.0)),
+        (viewport.y - 96.0).max(120.0),
+    )
+}
+
+pub(crate) fn workspace_title(
+    ui: &mut Ui,
+    palette: Palette,
+    icon: &str,
+    title: &str,
+    subtitle: &str,
+) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(icon).size(23.0).color(palette.accent));
+        ui.vertical(|ui| {
+            ui.add(
+                egui::Label::new(RichText::new(title).font(crate::ui::theme::semibold(21.0)))
+                    .wrap(),
+            );
+            ui.add(
+                egui::Label::new(RichText::new(subtitle).size(11.5).color(palette.muted)).wrap(),
+            );
+        });
+    });
+}
+
 pub(crate) fn icon_button(ui: &mut Ui, _palette: Palette, icon: &str, tooltip: &str) -> Response {
     let response = ui.add(
         Button::new(RichText::new(icon).font(FontId::proportional(16.0)))
@@ -97,13 +127,30 @@ pub(crate) fn nav_item(
             palette.muted
         },
     );
-    ui.painter().text(
-        egui::pos2(rect.left() + 36.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        label,
-        medium(13.0),
-        text_color,
+    let badge_width = badge.map_or(0.0, |badge| {
+        ui.painter()
+            .layout_no_wrap(badge.to_owned(), medium(9.5), palette.muted)
+            .size()
+            .x
+            + 18.0
+    });
+    let mut job =
+        egui::text::LayoutJob::simple_singleline(label.to_owned(), medium(13.0), text_color);
+    job.wrap.max_width = (rect.width() - 46.0 - badge_width).max(0.0);
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    let label_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 36.0, rect.top()),
+        egui::pos2(rect.right() - 10.0 - badge_width, rect.bottom()),
     );
+    ui.painter()
+        .with_clip_rect(label_rect.intersect(ui.clip_rect()))
+        .galley(
+            egui::pos2(label_rect.left(), rect.center().y - galley.size().y / 2.0),
+            galley,
+            text_color,
+        );
     if let Some(badge) = badge {
         ui.painter().text(
             egui::pos2(rect.right() - 10.0, rect.center().y),
@@ -146,9 +193,37 @@ pub(crate) fn usage_bar(
 
 pub(crate) fn stat_row(ui: &mut Ui, palette: Palette, label: &str, value: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(palette.muted).size(12.0));
+        let width = ui.available_width();
+        ui.allocate_ui_with_layout(
+            vec2(width * 0.46, 22.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.add(
+                    egui::Label::new(RichText::new(label).color(palette.muted).size(12.0))
+                        .truncate(),
+                )
+                .on_hover_text(label);
+            },
+        );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(value).font(medium(12.5)));
+            ui.add(egui::Label::new(RichText::new(value).font(medium(12.5))).truncate())
+                .on_hover_text(value);
+        });
+    });
+}
+
+/// Keep the numeric column visible even when the path fills the whole row.
+pub(crate) fn path_size_row(ui: &mut Ui, palette: Palette, icon: &str, path: &str, size: &str) {
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        ui.label(
+            RichText::new(size)
+                .font(FontId::monospace(10.0))
+                .color(palette.muted),
+        );
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.label(RichText::new(icon).size(11.0).color(palette.muted));
+            ui.add(egui::Label::new(RichText::new(path).font(FontId::monospace(10.0))).truncate())
+                .on_hover_text(path);
         });
     });
 }

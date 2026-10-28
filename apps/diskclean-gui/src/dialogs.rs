@@ -32,7 +32,8 @@ impl DiskCleanupApp {
                     .inner_margin(20),
             )
             .show(context, |ui| {
-                ui.set_width(520.0);
+                let size = components::modal_size(context, 520.0);
+                ui.set_width(size.x);
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(
@@ -56,7 +57,7 @@ impl DiskCleanupApp {
 
                 egui::ScrollArea::vertical()
                     .id_salt("settings_scroll")
-                    .max_height(520.0)
+                    .max_height((size.y - 130.0).max(80.0))
                     .show(ui, |ui| {
                         components::section_label(ui, palette, self.text(Key::General));
                         ui.horizontal(|ui| {
@@ -191,54 +192,95 @@ impl DiskCleanupApp {
                     .inner_margin(20),
             )
             .show(context, |ui| {
-                ui.set_width(460.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(self.text(Key::Shortcuts)).font(theme::semibold(20.0)));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if components::icon_button(ui, palette, icons::CLOSE, self.text(Key::Close))
-                            .clicked()
-                        {
-                            close = true;
-                        }
+                let size = components::modal_size(context, 460.0);
+                ui.set_width(size.x);
+                egui::ScrollArea::vertical()
+                    .id_salt("help_content")
+                    .max_height(size.y)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(self.text(Key::Shortcuts))
+                                    .font(theme::semibold(20.0)),
+                            );
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if components::icon_button(
+                                    ui,
+                                    palette,
+                                    icons::CLOSE,
+                                    self.text(Key::Close),
+                                )
+                                .clicked()
+                                {
+                                    close = true;
+                                }
+                            });
+                        });
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(self.text(Key::SafetyNote))
+                                .color(palette.muted)
+                                .size(11.0),
+                        );
+                        ui.add_space(10.0);
+                        components::shortcut_row(
+                            ui,
+                            palette,
+                            "Ctrl+O",
+                            self.text(Key::ShortcutOpen),
+                        );
+                        components::shortcut_row(
+                            ui,
+                            palette,
+                            "Ctrl+R / F5",
+                            self.text(Key::ShortcutRescan),
+                        );
+                        components::shortcut_row(
+                            ui,
+                            palette,
+                            "Ctrl+F",
+                            self.text(Key::ShortcutSearch),
+                        );
+                        components::shortcut_row(
+                            ui,
+                            palette,
+                            "Enter",
+                            self.text(Key::ShortcutOpenItem),
+                        );
+                        components::shortcut_row(
+                            ui,
+                            palette,
+                            "Backspace",
+                            self.text(Key::ShortcutBack),
+                        );
+                        components::shortcut_row(
+                            ui,
+                            palette,
+                            "Ctrl+1 / 2 / 3",
+                            self.text(Key::ShortcutWorkspaces),
+                        );
+                        components::shortcut_row(
+                            ui,
+                            palette,
+                            "Ctrl+,",
+                            self.text(Key::ShortcutSettings),
+                        );
+                        components::shortcut_row(ui, palette, "Esc", self.text(Key::ShortcutClose));
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(self.text(Key::Tagline))
+                                .color(palette.muted)
+                                .size(10.5),
+                        );
+                        ui.add_space(10.0);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if components::primary_button(ui, palette, self.text(Key::Close))
+                                .clicked()
+                            {
+                                close = true;
+                            }
+                        });
                     });
-                });
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(self.text(Key::SafetyNote))
-                        .color(palette.muted)
-                        .size(11.0),
-                );
-                ui.add_space(10.0);
-                components::shortcut_row(ui, palette, "Ctrl+O", self.text(Key::ShortcutOpen));
-                components::shortcut_row(
-                    ui,
-                    palette,
-                    "Ctrl+R / F5",
-                    self.text(Key::ShortcutRescan),
-                );
-                components::shortcut_row(ui, palette, "Ctrl+F", self.text(Key::ShortcutSearch));
-                components::shortcut_row(ui, palette, "Enter", self.text(Key::ShortcutOpenItem));
-                components::shortcut_row(ui, palette, "Backspace", self.text(Key::ShortcutBack));
-                components::shortcut_row(
-                    ui,
-                    palette,
-                    "Ctrl+1 / 2 / 3",
-                    self.text(Key::ShortcutWorkspaces),
-                );
-                components::shortcut_row(ui, palette, "Ctrl+,", self.text(Key::ShortcutSettings));
-                components::shortcut_row(ui, palette, "Esc", self.text(Key::ShortcutClose));
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(self.text(Key::Tagline))
-                        .color(palette.muted)
-                        .size(10.5),
-                );
-                ui.add_space(10.0);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if components::primary_button(ui, palette, self.text(Key::Close)).clicked() {
-                        close = true;
-                    }
-                });
             });
 
         if modal.should_close() {
@@ -275,13 +317,19 @@ impl DiskCleanupApp {
                     .corner_radius(tokens::RADIUS_CARD)
                     .inner_margin(10)
                     .show(ui, |ui| {
-                        ui.horizontal(|ui| {
+                        ui.set_max_width((context.content_rect().width() - 80.0).min(440.0));
+                        ui.horizontal_top(|ui| {
                             ui.label(
                                 RichText::new(icon)
                                     .font(FontId::proportional(14.0))
                                     .color(color),
                             );
-                            ui.label(RichText::new(&toast.text).color(palette.text).size(11.5));
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&toast.text).color(palette.text).size(11.5),
+                                )
+                                .wrap(),
+                            );
                         });
                     });
             });

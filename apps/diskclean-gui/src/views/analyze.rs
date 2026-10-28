@@ -10,8 +10,7 @@ use eframe::egui::{
 use egui_extras::{Column, TableBuilder};
 
 use crate::app::{
-    DiskCleanupApp, SortKey, SortState, Tab, Workspace, files_label, folders_label, kind_icon,
-    kind_label, search_field_id,
+    DiskCleanupApp, SortKey, SortState, Tab, Workspace, kind_icon, kind_label, search_field_id,
 };
 use crate::i18n::Key;
 use crate::ui::{components, format, icons, theme, tokens};
@@ -183,8 +182,8 @@ impl DiskCleanupApp {
     fn workspace_toolbar(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette;
         ui.add_space(5.0);
-        ui.horizontal(|ui| {
-            let search_width = (ui.available_width() - 210.0).clamp(150.0, 380.0);
+        ui.horizontal_wrapped(|ui| {
+            let search_width = (ui.available_width() - 240.0).clamp(100.0, 340.0);
             let search_hint = self.text(Key::SearchHint);
             let response = ui.add(
                 TextEdit::singleline(&mut self.filters.search)
@@ -500,116 +499,124 @@ impl DiskCleanupApp {
         let mut chosen = None;
         let mut next_sort = None;
 
-        TableBuilder::new(ui)
-            .id_salt("top_files_table")
-            .striped(false)
-            .resizable(true)
-            .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::remainder().at_least(150.0))
-            .column(Column::exact(92.0))
-            .column(Column::exact(96.0))
-            .column(Column::exact(74.0))
-            .header(tokens::HEADER_HEIGHT, |mut header| {
-                header.col(|ui| {
-                    if components::sort_header(
-                        ui,
-                        palette,
-                        labels[0],
-                        sort.key == SortKey::Name,
-                        sort.descending,
-                    )
-                    .clicked()
-                    {
-                        next_sort = Some(next_sort_state(sort, SortKey::Name));
-                    }
-                });
-                header.col(|ui| {
-                    if components::sort_header(
-                        ui,
-                        palette,
-                        labels[1],
-                        sort.key == SortKey::Size,
-                        sort.descending,
-                    )
-                    .clicked()
-                    {
-                        next_sort = Some(next_sort_state(sort, SortKey::Size));
-                    }
-                });
-                header.col(|ui| {
-                    if components::sort_header(
-                        ui,
-                        palette,
-                        labels[2],
-                        sort.key == SortKey::Modified,
-                        sort.descending,
-                    )
-                    .clicked()
-                    {
-                        next_sort = Some(next_sort_state(sort, SortKey::Modified));
-                    }
-                });
-                header.col(|ui| {
-                    ui.label(RichText::new(labels[3]).color(palette.muted).size(10.5));
-                });
-            })
-            .body(|body| {
-                body.rows(tokens::ROW_HEIGHT, files.len(), |mut row| {
-                    let id = files[row.index()];
-                    let node = tree.node(id);
-                    let path = index.paths[id as usize].clone();
-                    row.set_selected(selected == id);
-                    row.col(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(kind_icon(node.kind))
-                                    .color(palette.muted)
-                                    .size(12.0),
-                            );
-                            ui.add(
-                                egui::Label::new(RichText::new(node.display_name()).size(12.0))
-                                    .truncate(),
+        egui::ScrollArea::horizontal()
+            .id_salt("top_files_table_horizontal")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.set_min_width(tokens::WORKSPACE_MIN_WIDTH);
+                TableBuilder::new(ui)
+                    .id_salt("top_files_table")
+                    .striped(false)
+                    .resizable(true)
+                    .cell_layout(Layout::left_to_right(Align::Center))
+                    .column(Column::remainder().clip(true).at_least(150.0))
+                    .column(Column::exact(92.0).clip(true))
+                    .column(Column::exact(96.0).clip(true))
+                    .column(Column::exact(74.0).clip(true))
+                    .header(tokens::HEADER_HEIGHT, |mut header| {
+                        header.col(|ui| {
+                            if components::sort_header(
+                                ui,
+                                palette,
+                                labels[0],
+                                sort.key == SortKey::Name,
+                                sort.descending,
                             )
-                            .on_hover_text(path.display().to_string());
-                            if node.is_hardlink_duplicate {
-                                ui.label(
-                                    RichText::new(icons::DUPLICATES)
-                                        .color(palette.warning)
-                                        .size(11.0),
-                                )
-                                .on_hover_text(self.text(Key::Hardlink));
+                            .clicked()
+                            {
+                                next_sort = Some(next_sort_state(sort, SortKey::Name));
                             }
                         });
+                        header.col(|ui| {
+                            if components::sort_header(
+                                ui,
+                                palette,
+                                labels[1],
+                                sort.key == SortKey::Size,
+                                sort.descending,
+                            )
+                            .clicked()
+                            {
+                                next_sort = Some(next_sort_state(sort, SortKey::Size));
+                            }
+                        });
+                        header.col(|ui| {
+                            if components::sort_header(
+                                ui,
+                                palette,
+                                labels[2],
+                                sort.key == SortKey::Modified,
+                                sort.descending,
+                            )
+                            .clicked()
+                            {
+                                next_sort = Some(next_sort_state(sort, SortKey::Modified));
+                            }
+                        });
+                        header.col(|ui| {
+                            ui.label(RichText::new(labels[3]).color(palette.muted).size(10.5));
+                        });
+                    })
+                    .body(|body| {
+                        body.rows(tokens::ROW_HEIGHT, files.len(), |mut row| {
+                            let id = files[row.index()];
+                            let node = tree.node(id);
+                            let path = index.paths[id as usize].clone();
+                            row.set_selected(selected == id);
+                            row.col(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(kind_icon(node.kind))
+                                            .color(palette.muted)
+                                            .size(12.0),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(node.display_name()).size(12.0),
+                                        )
+                                        .truncate(),
+                                    )
+                                    .on_hover_text(path.display().to_string());
+                                    if node.is_hardlink_duplicate {
+                                        ui.label(
+                                            RichText::new(icons::DUPLICATES)
+                                                .color(palette.warning)
+                                                .size(11.0),
+                                        )
+                                        .on_hover_text(self.text(Key::Hardlink));
+                                    }
+                                });
+                            });
+                            row.col(|ui| {
+                                components::right_label(
+                                    ui,
+                                    palette,
+                                    &format::size(language, node.allocated_size),
+                                    true,
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.label(
+                                    RichText::new(format::age(language, node.modified_unix))
+                                        .color(palette.muted)
+                                        .size(10.5),
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.label(
+                                    RichText::new(kind_label(language, node.kind))
+                                        .color(palette.muted)
+                                        .size(10.5),
+                                );
+                            });
+                            let response = row.response();
+                            if response.clicked() {
+                                chosen = Some(id);
+                            }
+                            response.context_menu(|ui| self.path_context_menu(ui, &path));
+                            response.on_hover_text(path.display().to_string());
+                        });
                     });
-                    row.col(|ui| {
-                        components::right_label(
-                            ui,
-                            palette,
-                            &format::size(language, node.allocated_size),
-                            true,
-                        );
-                    });
-                    row.col(|ui| {
-                        ui.label(
-                            RichText::new(format::age(language, node.modified_unix))
-                                .color(palette.muted)
-                                .size(10.5),
-                        );
-                    });
-                    row.col(|ui| {
-                        ui.label(
-                            RichText::new(kind_label(language, node.kind))
-                                .color(palette.muted)
-                                .size(10.5),
-                        );
-                    });
-                    let response = row.response();
-                    if response.clicked() {
-                        chosen = Some(id);
-                    }
-                    response.context_menu(|ui| self.path_context_menu(ui, &path));
-                    response.on_hover_text(path.display().to_string());
-                });
             });
 
         if let Some(sort) = next_sort {
@@ -662,100 +669,108 @@ impl DiskCleanupApp {
         let mut chosen = None;
         let mut next_sort = None;
 
-        TableBuilder::new(ui)
-            .id_salt("top_folders_table")
-            .striped(false)
-            .resizable(true)
-            .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::remainder().at_least(150.0))
-            .column(Column::exact(92.0))
-            .column(Column::exact(78.0))
-            .column(Column::exact(78.0))
-            .header(tokens::HEADER_HEIGHT, |mut header| {
-                header.col(|ui| {
-                    if components::sort_header(
-                        ui,
-                        palette,
-                        labels[0],
-                        sort.key == SortKey::Name,
-                        sort.descending,
-                    )
-                    .clicked()
-                    {
-                        next_sort = Some(next_sort_state(sort, SortKey::Name));
-                    }
-                });
-                header.col(|ui| {
-                    if components::sort_header(
-                        ui,
-                        palette,
-                        labels[1],
-                        sort.key == SortKey::Size,
-                        sort.descending,
-                    )
-                    .clicked()
-                    {
-                        next_sort = Some(next_sort_state(sort, SortKey::Size));
-                    }
-                });
-                header.col(|ui| {
-                    ui.label(RichText::new(labels[2]).color(palette.muted).size(10.5));
-                });
-                header.col(|ui| {
-                    ui.label(RichText::new(labels[3]).color(palette.muted).size(10.5));
-                });
-            })
-            .body(|body| {
-                body.rows(tokens::ROW_HEIGHT, folders.len(), |mut row| {
-                    let id = folders[row.index()];
-                    let node = tree.node(id);
-                    let path = index.paths[id as usize].clone();
-                    row.set_selected(selected == id);
-                    row.col(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(icons::FOLDER)
-                                    .color(palette.accent)
-                                    .size(12.0),
-                            );
-                            ui.add(
-                                egui::Label::new(RichText::new(node.display_name()).size(12.0))
-                                    .truncate(),
+        egui::ScrollArea::horizontal()
+            .id_salt("top_folders_table_horizontal")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.set_min_width(tokens::WORKSPACE_MIN_WIDTH);
+                TableBuilder::new(ui)
+                    .id_salt("top_folders_table")
+                    .striped(false)
+                    .resizable(true)
+                    .cell_layout(Layout::left_to_right(Align::Center))
+                    .column(Column::remainder().clip(true).at_least(150.0))
+                    .column(Column::exact(92.0).clip(true))
+                    .column(Column::exact(78.0).clip(true))
+                    .column(Column::exact(78.0).clip(true))
+                    .header(tokens::HEADER_HEIGHT, |mut header| {
+                        header.col(|ui| {
+                            if components::sort_header(
+                                ui,
+                                palette,
+                                labels[0],
+                                sort.key == SortKey::Name,
+                                sort.descending,
                             )
-                            .on_hover_text(path.display().to_string());
+                            .clicked()
+                            {
+                                next_sort = Some(next_sort_state(sort, SortKey::Name));
+                            }
+                        });
+                        header.col(|ui| {
+                            if components::sort_header(
+                                ui,
+                                palette,
+                                labels[1],
+                                sort.key == SortKey::Size,
+                                sort.descending,
+                            )
+                            .clicked()
+                            {
+                                next_sort = Some(next_sort_state(sort, SortKey::Size));
+                            }
+                        });
+                        header.col(|ui| {
+                            ui.label(RichText::new(labels[2]).color(palette.muted).size(10.5));
+                        });
+                        header.col(|ui| {
+                            ui.label(RichText::new(labels[3]).color(palette.muted).size(10.5));
+                        });
+                    })
+                    .body(|body| {
+                        body.rows(tokens::ROW_HEIGHT, folders.len(), |mut row| {
+                            let id = folders[row.index()];
+                            let node = tree.node(id);
+                            let path = index.paths[id as usize].clone();
+                            row.set_selected(selected == id);
+                            row.col(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(icons::FOLDER)
+                                            .color(palette.accent)
+                                            .size(12.0),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(node.display_name()).size(12.0),
+                                        )
+                                        .truncate(),
+                                    )
+                                    .on_hover_text(path.display().to_string());
+                                });
+                            });
+                            row.col(|ui| {
+                                components::right_label(
+                                    ui,
+                                    palette,
+                                    &format::size(language, node.allocated_size),
+                                    true,
+                                );
+                            });
+                            row.col(|ui| {
+                                components::right_label(
+                                    ui,
+                                    palette,
+                                    &node.file_count.to_string(),
+                                    false,
+                                );
+                            });
+                            row.col(|ui| {
+                                components::right_label(
+                                    ui,
+                                    palette,
+                                    &node.dir_count.saturating_sub(1).to_string(),
+                                    false,
+                                );
+                            });
+                            let response = row.response();
+                            if response.clicked() {
+                                chosen = Some(id);
+                            }
+                            response.context_menu(|ui| self.path_context_menu(ui, &path));
+                            response.on_hover_text(path.display().to_string());
                         });
                     });
-                    row.col(|ui| {
-                        components::right_label(
-                            ui,
-                            palette,
-                            &format::size(language, node.allocated_size),
-                            true,
-                        );
-                    });
-                    row.col(|ui| {
-                        components::right_label(
-                            ui,
-                            palette,
-                            &files_label(language, node.file_count),
-                            false,
-                        );
-                    });
-                    row.col(|ui| {
-                        components::right_label(
-                            ui,
-                            palette,
-                            &folders_label(language, node.dir_count.saturating_sub(1)),
-                            false,
-                        );
-                    });
-                    let response = row.response();
-                    if response.clicked() {
-                        chosen = Some(id);
-                    }
-                    response.context_menu(|ui| self.path_context_menu(ui, &path));
-                    response.on_hover_text(path.display().to_string());
-                });
             });
 
         if let Some(sort) = next_sort {
@@ -791,75 +806,88 @@ impl DiskCleanupApp {
             self.text(Key::Share),
         ];
 
-        TableBuilder::new(ui)
-            .id_salt("extensions_table")
-            .striped(false)
-            .resizable(true)
-            .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::remainder().at_least(120.0))
-            .column(Column::exact(72.0))
-            .column(Column::exact(92.0))
-            .column(Column::exact(150.0))
-            .header(tokens::HEADER_HEIGHT, |mut header| {
-                for (column, label) in labels.into_iter().enumerate() {
-                    header.col(|ui| {
-                        let key = match column {
-                            0 => SortKey::Name,
-                            1 => SortKey::Count,
-                            _ => SortKey::Size,
-                        };
-                        if components::sort_header(
-                            ui,
-                            palette,
-                            label,
-                            sort.key == key,
-                            sort.descending,
-                        )
-                        .clicked()
-                        {
-                            next_sort = Some(next_sort_state(sort, key));
+        egui::ScrollArea::horizontal()
+            .id_salt("extensions_table_horizontal")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.set_min_width(tokens::WORKSPACE_MIN_WIDTH);
+                TableBuilder::new(ui)
+                    .id_salt("extensions_table")
+                    .striped(false)
+                    .resizable(true)
+                    .cell_layout(Layout::left_to_right(Align::Center))
+                    .column(Column::remainder().clip(true).at_least(120.0))
+                    .column(Column::exact(72.0).clip(true))
+                    .column(Column::exact(92.0).clip(true))
+                    .column(Column::exact(150.0))
+                    .header(tokens::HEADER_HEIGHT, |mut header| {
+                        for (column, label) in labels.into_iter().enumerate() {
+                            header.col(|ui| {
+                                let key = match column {
+                                    0 => SortKey::Name,
+                                    1 => SortKey::Count,
+                                    _ => SortKey::Size,
+                                };
+                                if components::sort_header(
+                                    ui,
+                                    palette,
+                                    label,
+                                    sort.key == key,
+                                    sort.descending,
+                                )
+                                .clicked()
+                                {
+                                    next_sort = Some(next_sort_state(sort, key));
+                                }
+                            });
                         }
-                    });
-                }
-            })
-            .body(|body| {
-                body.rows(tokens::ROW_HEIGHT, extensions.len(), |mut row| {
-                    let extension = &extensions[row.index()];
-                    row.col(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(icons::FILE).color(palette.muted).size(12.0));
-                            ui.label(
-                                RichText::new(format!(".{}", extension.extension))
-                                    .font(theme::medium(12.0)),
-                            );
+                    })
+                    .body(|body| {
+                        body.rows(tokens::ROW_HEIGHT, extensions.len(), |mut row| {
+                            let extension = &extensions[row.index()];
+                            row.col(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(icons::FILE).color(palette.muted).size(12.0),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(format!(".{}", extension.extension))
+                                                .font(theme::medium(12.0)),
+                                        )
+                                        .truncate(),
+                                    )
+                                    .on_hover_text(&extension.extension);
+                                });
+                            });
+                            row.col(|ui| {
+                                components::right_label(
+                                    ui,
+                                    palette,
+                                    &extension.files.to_string(),
+                                    false,
+                                );
+                            });
+                            row.col(|ui| {
+                                components::right_label(
+                                    ui,
+                                    palette,
+                                    &format::size(language, extension.allocated_bytes),
+                                    true,
+                                );
+                            });
+                            row.col(|ui| {
+                                let fraction = (extension.allocated_bytes as f32
+                                    / total_size as f32)
+                                    .clamp(0.0, 1.0);
+                                ui.add(
+                                    egui::ProgressBar::new(fraction)
+                                        .desired_height(5.0)
+                                        .fill(palette.accent),
+                                );
+                            });
                         });
                     });
-                    row.col(|ui| {
-                        components::right_label(
-                            ui,
-                            palette,
-                            &files_label(language, extension.files),
-                            false,
-                        );
-                    });
-                    row.col(|ui| {
-                        components::right_label(
-                            ui,
-                            palette,
-                            &format::size(language, extension.allocated_bytes),
-                            true,
-                        );
-                    });
-                    row.col(|ui| {
-                        let fraction =
-                            (extension.allocated_bytes as f32 / total_size as f32).clamp(0.0, 1.0);
-                        ui.add(
-                            egui::ProgressBar::new(fraction)
-                                .desired_height(5.0)
-                                .fill(palette.accent),
-                        );
-                    });
-                });
             });
         if let Some(sort) = next_sort {
             self.type_sort = sort;
@@ -902,56 +930,63 @@ impl DiskCleanupApp {
             self.text(Key::Path),
             self.text(Key::Message),
         ];
-        TableBuilder::new(ui)
-            .id_salt("issues_table")
-            .striped(false)
-            .resizable(true)
-            .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::exact(104.0))
-            .column(Column::remainder().at_least(170.0))
-            .column(Column::remainder().at_least(200.0))
-            .header(tokens::HEADER_HEIGHT, |mut header| {
-                for label in labels {
-                    header.col(|ui| {
-                        ui.label(RichText::new(label).color(palette.muted).size(10.5));
-                    });
-                }
-            })
-            .body(|body| {
-                body.rows(tokens::ROW_HEIGHT, issues.len(), |mut row| {
-                    let issue = &tree.issues[issues[row.index()]];
-                    row.col(|ui| {
-                        ui.label(
-                            RichText::new(issue_label(language, issue.kind))
-                                .color(palette.warning)
-                                .size(10.5),
-                        );
-                    });
-                    row.col(|ui| {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(issue.path.display().to_string()).size(11.0),
-                            )
-                            .truncate(),
-                        )
-                        .on_hover_text(issue.path.display().to_string());
-                    });
-                    row.col(|ui| {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(issue_summary(language, issue.kind)).size(11.0),
-                            )
-                            .truncate(),
-                        )
-                        .on_hover_text(&issue.message);
-                    });
-                    row.response().context_menu(|ui| {
-                        if ui.button(language.text(Key::CopyPath)).clicked() {
-                            ui.ctx().copy_text(issue.path.display().to_string());
-                            ui.close();
+        egui::ScrollArea::horizontal()
+            .id_salt("issues_table_horizontal")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.set_min_width(tokens::WORKSPACE_MIN_WIDTH);
+                TableBuilder::new(ui)
+                    .id_salt("issues_table")
+                    .striped(false)
+                    .resizable(true)
+                    .cell_layout(Layout::left_to_right(Align::Center))
+                    .column(Column::exact(120.0).clip(true))
+                    .column(Column::remainder().clip(true).at_least(170.0))
+                    .column(Column::remainder().clip(true).at_least(200.0))
+                    .header(tokens::HEADER_HEIGHT, |mut header| {
+                        for label in labels {
+                            header.col(|ui| {
+                                ui.label(RichText::new(label).color(palette.muted).size(10.5));
+                            });
                         }
+                    })
+                    .body(|body| {
+                        body.rows(tokens::ROW_HEIGHT, issues.len(), |mut row| {
+                            let issue = &tree.issues[issues[row.index()]];
+                            row.col(|ui| {
+                                ui.label(
+                                    RichText::new(issue_label(language, issue.kind))
+                                        .color(palette.warning)
+                                        .size(10.5),
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(issue.path.display().to_string()).size(11.0),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(issue.path.display().to_string());
+                            });
+                            row.col(|ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(issue_summary(language, issue.kind))
+                                            .size(11.0),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(&issue.message);
+                            });
+                            row.response().context_menu(|ui| {
+                                if ui.button(language.text(Key::CopyPath)).clicked() {
+                                    ui.ctx().copy_text(issue.path.display().to_string());
+                                    ui.close();
+                                }
+                            });
+                        });
                     });
-                });
             });
     }
 }
