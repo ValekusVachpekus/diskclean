@@ -101,6 +101,25 @@ updating the source. An optional first argument selects a different bin
 directory. If needed, the script prints the line to add that directory to PATH.
 It refuses to overwrite a regular file.
 
+### System directories and sudo on Wayland
+
+Hidden files do not require `sudo`: leave **Skip hidden entries** disabled in
+Settings. Some system directories require root permissions to read their
+contents.
+
+For a scan with root permissions on a local Wayland desktop, preserve the
+session variables so the GUI can connect to the display:
+
+```bash
+sudo --preserve-env=WAYLAND_DISPLAY,XDG_RUNTIME_DIR "$HOME/.local/bin/disk-cleanup" /
+```
+
+Use the full executable path because `sudo` may not include `~/.local/bin` in
+its PATH. Without the display session variables, startup can fail with
+`Authorization required, but no authorization protocol specified` or
+`XOpenDisplayFailed`. Display access still depends on the compositor and local
+sudo policy. The application does not request elevation automatically.
+
 ## CLI
 
 ```bash
