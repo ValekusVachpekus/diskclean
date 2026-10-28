@@ -331,6 +331,20 @@ still open.
 7. Similar videos via `czkawka_core` + system `ffmpeg`.
 8. System command recommendations and packaging polish.
 
+User-approved additions (2026-10-28), all **planned, not implemented**; see
+P1–P3 and acceptance criteria in `docs/plan.md`:
+
+- P1: “Where did the space go?” category overview with readable names/icons,
+  sizes and drill-down into games, apps, projects, downloads, media and caches;
+  consistent totals and explicit unknown ownership.
+- P2: application/game leftovers with ownership, installation status, content
+  and removal/risk explanations. Extend Apps/games; protect saves and user data,
+  and route reviewed cleanup through the existing audited trash pipeline.
+- P3: exact-duplicate previews and explicit keeper proposals using preferred
+  folders and newest/oldest rules; bulk review and per-group overrides, with
+  no deletion selection merely from changing a rule. Similar-media phases stay
+  separate.
+
 ## Maintenance rule for this file
 
 Update `AGENTS.md` when any of these change:

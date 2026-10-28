@@ -38,6 +38,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 2 safe cleanup | Complete | rules, discovery, protected paths, revalidation, trash-only apply, audit log, GUI and CLI |
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
+| Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
 | Phase 4+ | Not started | applications/games, similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -342,6 +343,69 @@ under U3.
 
 ## Remaining feature milestones
 
+### Approved product priorities (planned, 2026-10-28)
+
+These three additions were explicitly selected by the user. They extend the
+existing analyzer, Phase 4 applications/games and exact-duplicate workflow;
+implementation has not started. Existing stabilization and release gates remain
+in effect.
+
+#### P1 — Where did the space go? / Куда ушло место
+
+- [ ] Add an overview with understandable categories: games, applications,
+      development projects/build output, downloads, media, caches and other or
+      unclassified data. Show size, share, localized names and icons.
+- [ ] Drill down from each category into specific applications, projects and
+      files, with navigation to the existing analysis views.
+- [ ] Explain classification using local application/launcher metadata, known
+      paths and file facts. Keep uncertain ownership visible as unknown.
+- [ ] Reconcile totals with the scanned tree without double-counting nested
+      categories or hardlink aliases; disclose partial scans and exclusions.
+
+Acceptance: EN/RU fixture and GUI tests cover classification, unknown items,
+category drill-down, consistent totals and responsive rendering on large scans.
+Application ownership builds on Phase 4 discovery. Category membership alone
+never makes an item safe to clean.
+
+#### P2 — Explained application and game leftovers
+
+- [ ] Extend Phase 4 discovery with readable application/game names, launcher,
+      installation status (installed, removed with supporting evidence, or
+      unknown), occupied space and related folders.
+- [ ] Identify leftover candidates and explain their owner, why they may remain,
+      what data they contain and the effect/risk of removing them. Missing
+      launcher metadata alone must not imply that an application was removed.
+- [ ] Distinguish disposable caches/build output from saves, settings, mods and
+      other user data. Ambiguous ownership is reported for review; personal
+      data is never automatically labelled disposable or preselected.
+- [ ] Offer explicitly reviewed candidates through the existing risk/basket/
+      confirmation/revalidation/audit/trash pipeline. Uninstall and system
+      commands remain recommendation-only.
+
+Acceptance: Linux/Windows fixtures cover installed, removed and unknown states,
+shared folders, missing metadata and preserved saves/user data; EN/RU GUI tests
+verify ownership/risk explanations and explicit review.
+
+#### P3 — Duplicate preview and assisted keeper selection
+
+- [ ] Add bounded, background-loaded local previews for supported images and
+      file details for other formats, with clear unsupported/unreadable states.
+      Exact duplicate matching remains based on full content hashes.
+- [ ] Let users prefer a folder for the retained copy and choose explicit
+      keeper rules such as newest/oldest modification time, with deterministic
+      tie handling and a readable explanation for each proposal.
+- [ ] Preview proposed keeper changes across many groups, show the resulting
+      savings and allow per-group overrides before explicitly applying them.
+      Changing a keeper rule alone must not select copies for deletion.
+- [ ] Preserve the manual keeper workflow, at least one retained copy per
+      group, bounded preview resources and responsive virtualized large lists.
+      Cleanup still verifies both copies and keepers through the shared pipeline.
+
+Acceptance: tests cover preferred folders, ties, manual overrides, unchanged
+selection before explicit bulk actions, missing/changed keepers, preview errors
+and large-group performance in both languages/themes. This enhances exact
+file duplicates; similar-photo/video detection remains in Phases 5–6.
+
 ### Phase 2 — Safe cleanup, trash, audit log (complete)
 
 - TOML rules with id/category/risk/localized title+description/matcher/action.
@@ -385,6 +449,9 @@ backend covers success/error/cancel/changed-file; system commands never run.
   cancellation, and keeper-based savings.
 
 ### Phase 4 — Applications and games
+
+Includes the approved P2 leftovers workflow and supplies ownership facts for
+P1 category summaries above. Both additions remain planned.
 
 - Steam (libraryfolders.vdf, appmanifest), Epic, GOG, Heroic, Lutris; Windows
   Uninstall registry; Linux dpkg/pacman/flatpak/snap.
@@ -460,6 +527,13 @@ backend covers success/error/cancel/changed-file; system commands never run.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-28 (approved product priorities): Recorded the user's selected
+  additions: P1 understandable space categories with drill-down, P2 application/
+  game leftovers with ownership and removal explanations, and P3 duplicate
+  previews plus preferred-folder/keeper rules. Added scope, dependencies and
+  acceptance criteria; all implementation items remain unchecked. Updated the
+  AGENTS.md roadmap. This milestone changes planning only.
 
 - 2026-10-28 (source installation guides): README now provides complete
   copy/paste installation blocks for Ubuntu/Debian, Fedora, Arch Linux and
