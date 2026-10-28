@@ -87,6 +87,20 @@ The GUI accepts an optional path; when provided it starts scanning immediately.
 Release binaries are written to `target/release/diskclean` and
 `target/release/diskclean-gui`.
 
+On Linux, build and install a `disk-cleanup` command with:
+
+```bash
+./install.sh
+disk-cleanup                 # Open the GUI
+disk-cleanup ~/Downloads     # Scan a directory
+```
+
+The script creates a symlink in `~/.local/bin` to the release GUI in this
+checkout. Keep the checkout in place; rerun the script after moving it or
+updating the source. An optional first argument selects a different bin
+directory. If needed, the script prints the line to add that directory to PATH.
+It refuses to overwrite a regular file.
+
 ## CLI
 
 ```bash

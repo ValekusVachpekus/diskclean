@@ -799,3 +799,127 @@ fn fixture_tree_is_consistent() {
     assert_eq!(tree.node(ROOT_ID).dir_count, 3);
     assert!(SystemTime::now().duration_since(UNIX_EPOCH).is_ok());
 }
+
+#[test]
+fn overview_volume_grid_fits_viewport_with_long_mounts_in_both_languages() {
+    for language in [Language::English, Language::Russian] {
+        for width in [480.0, 760.0, 1100.0] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.volumes = [
+                "/".to_owned(),
+                "/boot/efi".to_owned(),
+                format!(
+                    "/var/lib/docker/rootfs/overlayfs/{}",
+                    "abcdef0123456789".repeat(6)
+                ),
+            ]
+            .into_iter()
+            .map(|mount_point| diskclean_platform::VolumeInfo {
+                mount_path: PathBuf::from(&mount_point),
+                mount_point,
+                name: "/dev/nvme0n1p5".to_owned(),
+                file_system: "ext4".to_owned(),
+                total_space: 324 * GIB,
+                available_space: 120 * GIB,
+                is_removable: false,
+            })
+            .collect();
+            app.settings.recent_roots =
+                vec![format!("/home/user/{}", "long-directory/".repeat(20))];
+            let mut harness = Harness::builder()
+                .with_size(Vec2::new(width, 900.0))
+                .with_accessibility_check(false)
+                .with_context_setup(|ctx| {
+                    theme::install_fonts(ctx);
+                    theme::apply(ctx, ThemeMode::Dark);
+                })
+                .build_ui_state(
+                    |ui, state: &mut (DiskCleanupApp, f32)| {
+                        let right = ui.max_rect().right();
+                        state.0.overview(ui);
+                        state.1 = ui.min_rect().right() - right;
+                    },
+                    (app, 0.0),
+                );
+            harness.run();
+            assert!(
+                harness.state().1 <= 1.0,
+                "overview overflow at {width}: {}",
+                harness.state().1
+            );
+        }
+    }
+}
+
+#[test]
+fn scan_bar_shows_measured_counts_and_estimated_percent() {
+    use crate::app::ScanState;
+    use diskclean_core::{ScanControl, ScanOptions, scan};
+    let temp = tempfile::tempdir().expect("fixture");
+    fs::write(temp.path().join("file.bin"), [1; 4096]).expect("file");
+    let control = ScanControl::new();
+    let mut app = test_app(english_settings(), false);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.state = ScanState::Running {
+        estimated_bytes: Some(8192),
+        control: control.clone(),
+        receiver,
+        started: std::time::Instant::now(),
+        path: temp.path().to_path_buf(),
+    };
+    let mut harness = Harness::builder()
+        .with_size(Vec2::new(1000.0, 180.0))
+        .with_accessibility_check(false)
+        .with_context_setup(|ctx| {
+            theme::install_fonts(ctx);
+            theme::apply(ctx, ThemeMode::Dark);
+        })
+        .build_ui_state(|ui, app: &mut DiskCleanupApp| app.top_bar(ui), app);
+    assert!(harness.query_by_label("≈ 0%").is_some());
+    scan(temp.path(), &ScanOptions::default(), &control).expect("scan");
+    harness.run();
+    let expected = (control.snapshot().allocated_bytes as f64 / 8192.0 * 100.0)
+        .clamp(0.0, 99.0)
+        .floor();
+    assert!(
+        harness
+            .query_by_label(&format!("≈ {expected:.0}%"))
+            .is_some()
+    );
+    assert!(harness.query_by_label_contains("1 file").is_some());
+    drop(sender);
+}
+
+#[test]
+fn scan_progress_uses_occupied_bytes_of_the_enclosing_volume() {
+    let temp = tempfile::tempdir().expect("fixture");
+    let nested = temp.path().join("data");
+    let mut app = test_app(english_settings(), false);
+    app.volumes = [
+        (temp.path().to_path_buf(), 1000, 200),
+        (nested.clone(), 500, 400),
+    ]
+    .into_iter()
+    .map(
+        |(mount_path, total_space, available_space)| diskclean_platform::VolumeInfo {
+            mount_point: mount_path.display().to_string(),
+            mount_path,
+            name: "fixture".to_owned(),
+            file_system: "test".to_owned(),
+            total_space,
+            available_space,
+            is_removable: false,
+        },
+    )
+    .collect();
+    assert_eq!(app.scan_volume_bytes(&nested.join("folder")), Some(100));
+    assert_eq!(
+        app.scan_volume_bytes(&temp.path().join("database")),
+        Some(800)
+    );
+    app.volumes[1].available_space = 500;
+    assert_eq!(app.scan_volume_bytes(&nested), None);
+    app.volumes.clear();
+    assert_eq!(app.scan_volume_bytes(temp.path()), None);
+}

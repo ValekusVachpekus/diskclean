@@ -235,6 +235,19 @@ GUI 24, platform 2, rules 4. The 100k-node debug index/query/render check takes
 1.50 s locally. Interactive smoke, snapshots/screenshots, cargo-deny and packaging
 remain open; see `docs/plan.md`.
 
+U3 follow-up (2026-10-28): overview grid/card overflow fixed, responsive
+one/two-column cards and compact long paths added; scan progress now shows a
+left-to-right byte-based progress bar instead of a zero-valued bar. The
+estimate uses scanned allocated file bytes / occupied space of the enclosing
+volume, fixed at scan start, with an approximate percentage and byte totals.
+Tooltips explain that subfolders/skipped entries affect the estimate. EN/RU geometry
+regression covers long mounts at three workspace widths. Root `./install.sh`
+builds the release GUI and installs a `disk-cleanup` symlink in `~/.local/bin`
+(optional bin directory argument); the checkout must remain in place.
+Verification: 27 GUI tests, fmt, GUI clippy with -D warnings and Linux
+release build pass; installer and symlink checked. Interactive visual
+acceptance remains open.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**

@@ -89,6 +89,7 @@ type ScanOutput = (Arc<Tree>, Arc<AnalysisIndex>);
 pub(crate) enum ScanState {
     Idle,
     Running {
+        estimated_bytes: Option<u64>,
         control: ScanControl,
         receiver: Receiver<Result<ScanOutput, ScanFailure>>,
         started: Instant,
@@ -274,6 +275,7 @@ impl DiskCleanupApp {
             cross_filesystems: self.settings.cross_filesystems,
             ..ScanOptions::default()
         };
+        let estimated_bytes = self.scan_volume_bytes(&path);
         let control = ScanControl::new();
         let thread_control = control.clone();
         let scan_path = path.clone();
@@ -297,11 +299,25 @@ impl DiskCleanupApp {
 
         self.toast = None;
         self.state = ScanState::Running {
+            estimated_bytes,
             control,
             receiver,
             started: Instant::now(),
             path,
         };
+    }
+
+    /// The enclosing volume's occupied space is a fixed baseline for this scan.
+    /// A folder may occupy only part of it; exclusions and unreadable paths also
+    /// make this an estimate rather than a count of pending files.
+    pub(crate) fn scan_volume_bytes(&self, path: &std::path::Path) -> Option<u64> {
+        let absolute = std::path::absolute(path).ok()?;
+        self.volumes
+            .iter()
+            .filter(|volume| absolute.starts_with(&volume.mount_path))
+            .max_by_key(|volume| volume.mount_path.components().count())
+            .map(|volume| volume.total_space.saturating_sub(volume.available_space))
+            .filter(|bytes| *bytes > 0)
     }
 
     pub(crate) fn cancel_scan(&self) {

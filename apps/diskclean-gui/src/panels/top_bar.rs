@@ -33,7 +33,7 @@ impl DiskCleanupApp {
             );
             ui.add_space(10.0);
 
-            let path_width = (ui.available_width() - 330.0).clamp(160.0, 620.0);
+            let path_width = (ui.available_width() - 330.0).clamp(80.0, 620.0);
             let path_hint = self.text(Key::PathHint);
             let path_response = ui
                 .add(
@@ -100,6 +100,7 @@ impl DiskCleanupApp {
         });
 
         if let ScanState::Running {
+            estimated_bytes,
             control,
             started,
             path,
@@ -108,13 +109,17 @@ impl DiskCleanupApp {
         {
             let snapshot = control.snapshot();
             ui.add_space(5.0);
+            // Reserve the final percent for tree construction and analysis indexing.
+            let fraction = estimated_bytes.map_or(0.0, |total| {
+                (snapshot.allocated_bytes as f64 / total as f64).clamp(0.0, 0.99) as f32
+            });
             ui.add(
-                egui::ProgressBar::new(0.0)
-                    .animate(true)
+                egui::ProgressBar::new(fraction)
                     .desired_width(ui.available_width())
-                    .desired_height(4.0)
+                    .desired_height(6.0)
                     .fill(palette.accent),
-            );
+            )
+            .on_hover_text(self.text(Key::ScanProgressEstimate));
             ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
                 let state_text = if snapshot.cancelled {
@@ -122,6 +127,14 @@ impl DiskCleanupApp {
                 } else {
                     self.text(Key::Scanning)
                 };
+                if estimated_bytes.is_some() {
+                    ui.label(
+                        RichText::new(format!("≈ {:.0}%", (fraction * 100.0).floor()))
+                            .font(FontId::monospace(11.5))
+                            .color(palette.accent),
+                    )
+                    .on_hover_text(self.text(Key::ScanProgressEstimate));
+                }
                 ui.label(
                     RichText::new(state_text)
                         .font(theme::medium(11.5))
@@ -138,7 +151,14 @@ impl DiskCleanupApp {
                 ui.label(
                     RichText::new(format!(
                         "{} · {} · {}",
-                        format::size(self.language(), snapshot.allocated_bytes),
+                        match estimated_bytes {
+                            Some(total) => format!(
+                                "{} / {}",
+                                format::size(self.language(), snapshot.allocated_bytes),
+                                format::size(self.language(), *total)
+                            ),
+                            None => format::size(self.language(), snapshot.allocated_bytes),
+                        },
                         crate::app::files_label(self.language(), snapshot.files),
                         crate::app::folders_label(self.language(), snapshot.directories),
                     ))

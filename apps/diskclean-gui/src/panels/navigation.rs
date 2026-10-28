@@ -119,6 +119,7 @@ impl DiskCleanupApp {
                                 .color(palette.accent),
                         );
                         ui.vertical(|ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                             ui.label(
                                 RichText::new(&volume.mount_point)
                                     .font(theme::medium(12.5))
@@ -159,7 +160,11 @@ impl DiskCleanupApp {
                 })
                 .response
                 .interact(Sense::click())
-                .on_hover_text(self.text(Key::DoubleClickScan));
+                .on_hover_text(format!(
+                    "{}\n{}",
+                    volume.mount_point,
+                    self.text(Key::DoubleClickScan)
+                ));
             if response.clicked() {
                 chosen_volume = Some(volume.mount_point.clone());
             }
@@ -220,6 +225,7 @@ impl DiskCleanupApp {
                             }),
                         );
                         ui.vertical(|ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                             ui.label(
                                 RichText::new(format::shorten_middle(
                                     &format::file_name(&path),

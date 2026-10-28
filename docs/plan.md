@@ -460,6 +460,23 @@ backend covers success/error/cancel/changed-file; system commands never run.
 
 ## Progress log
 
+- 2026-10-28 (U3 layout fix): Overview volume cards now explicitly lay out
+  their contents vertically, end grid rows and switch to one column below
+  660 logical pixels. Long mount/recent paths truncate with full tooltips;
+  the heading and home action stack to fit narrow workspaces. Scan feedback
+  fills left to right using scanned allocated file bytes divided by occupied
+  space on the enclosing volume. The baseline is captured at scan start and
+  the display is capped at 99% while processing/indexing. Percent and scanned /
+  total bytes are shown; EN/RU tooltips explain the estimate for subfolders,
+  skipped files and filesystem overhead. No pre-scan or branch budgeting. Added an EN/RU geometry regression with three volumes, long Docker
+  mounts and 480/760/1100-pixel workspaces. Root `install.sh` builds a locked
+  GUI release and symlinks `disk-cleanup` into `~/.local/bin` (or a supplied
+  bin directory), refusing regular-file replacement. Real-display visual
+  acceptance remains open.
+  Verification: all 27 GUI tests (including byte progress and volume selection), fmt and
+  GUI clippy with -D warnings pass. Release build and installation from a
+  different working directory pass; regular-file replacement is rejected.
+
 - 2026-10-28 (S5): User profile/Downloads and protected system locations use
   Windows Known Folders, including redirected folders and non-C installations.
   Linux Downloads honors XDG user-dirs.dirs without executing shell syntax;

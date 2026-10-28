@@ -85,6 +85,10 @@ define_text! {
     Ready => ("Ready", "Готово"),
     ScannedIn => ("Scanned in", "Скан за"),
     Scanning => ("Scanning…", "Сканирование…"),
+    ScanProgressEstimate => (
+        "Scanned file bytes / occupied space on the volume. Approximate: other folders, skipped files and filesystem metadata affect the total.",
+        "Объём проверенных файлов / занятое место на диске. Оценка приблизительная: в общий объём входят другие папки, пропущенные файлы и данные файловой системы."
+    ),
     Cancelling => ("Cancelling…", "Отмена…"),
     ScanFailed => ("Scan failed", "Сканирование не удалось"),
     ScanCancelled => ("Scan cancelled", "Сканирование отменено"),

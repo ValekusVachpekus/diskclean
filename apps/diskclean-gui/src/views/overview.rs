@@ -23,35 +23,20 @@ impl DiskCleanupApp {
             .id_salt("overview_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(icons::APP)
-                            .font(FontId::proportional(34.0))
-                            .color(palette.accent),
-                    );
-                    ui.add_space(4.0);
-                    ui.vertical(|ui| {
-                        ui.label(
-                            RichText::new(self.text(Key::EmptyTitle))
-                                .font(theme::semibold(24.0))
-                                .color(palette.text),
-                        );
-                        ui.label(
-                            RichText::new(self.text(Key::Tagline))
-                                .color(palette.muted)
-                                .size(12.5),
-                        );
-                    });
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if home_path().is_some()
-                            && components::primary_button(ui, palette, self.text(Key::ScanHome))
-                                .clicked()
-                        {
-                            scan_home = true;
-                        }
-                    });
-                });
+                ui.label(
+                    RichText::new(self.text(Key::EmptyTitle))
+                        .font(theme::semibold(24.0))
+                        .color(palette.text),
+                );
+                ui.label(RichText::new(self.text(Key::Tagline)).color(palette.muted));
+                ui.add_space(8.0);
+                if home_path().is_some()
+                    && components::primary_button(ui, palette, self.text(Key::ScanHome)).clicked()
+                {
+                    scan_home = true;
+                }
 
                 ui.add_space(10.0);
                 Frame::new()
@@ -83,12 +68,14 @@ impl DiskCleanupApp {
                     );
                 } else {
                     let gap = 12.0;
-                    let card_width = ((ui.available_width() - gap) / 2.0).max(220.0);
+                    let columns = if ui.available_width() >= 660.0 { 2 } else { 1 };
+                    let card_width =
+                        (ui.available_width() - gap * (columns - 1) as f32) / columns as f32;
                     egui::Grid::new("overview_volumes")
-                        .num_columns(2)
+                        .num_columns(columns)
                         .spacing([gap, gap])
                         .show(ui, |ui| {
-                            for volume in self.volumes.clone() {
+                            for (index, volume) in self.volumes.clone().into_iter().enumerate() {
                                 let selected = self.path_input.trim_end_matches(['/', '\\'])
                                     == volume.mount_point.trim_end_matches(['/', '\\']);
                                 let used =
@@ -110,84 +97,79 @@ impl DiskCleanupApp {
                                     .corner_radius(tokens::RADIUS_CARD)
                                     .inner_margin(12)
                                     .show(ui, |ui| {
-                                        ui.set_width(card_width - 24.0);
-                                        ui.set_min_height(84.0);
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(icons::VOLUME)
-                                                    .font(FontId::proportional(21.0))
-                                                    .color(palette.accent),
-                                            );
-                                            ui.vertical(|ui| {
-                                                ui.label(
-                                                    RichText::new(&volume.mount_point)
-                                                        .font(theme::medium(13.5)),
-                                                );
-                                                let subtitle = if volume.name.trim().is_empty() {
-                                                    volume.file_system.clone()
-                                                } else {
-                                                    format!(
+                                        ui.vertical(|ui| {
+                                            ui.set_width(card_width - 26.0);
+                                            ui.set_min_height(84.0);
+                                            ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(format!(
+                                                        "{}  {}",
+                                                        icons::VOLUME,
+                                                        volume.mount_point
+                                                    ))
+                                                    .font(theme::medium(13.5)),
+                                                )
+                                                .truncate(),
+                                            )
+                                            .on_hover_text(&volume.mount_point);
+                                            ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(format!(
                                                         "{} · {}",
                                                         volume.name, volume.file_system
-                                                    )
-                                                };
-                                                ui.label(
-                                                    RichText::new(subtitle)
-                                                        .color(palette.muted)
-                                                        .size(10.5),
-                                                );
-                                            });
-                                            ui.with_layout(
-                                                Layout::right_to_left(Align::Center),
-                                                |ui| {
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "{} {}",
-                                                            format::size(
-                                                                self.language(),
-                                                                volume.available_space
-                                                            ),
-                                                            self.text(Key::Free)
-                                                        ))
-                                                        .color(palette.muted)
-                                                        .size(10.5),
-                                                    );
-                                                },
-                                            );
-                                        });
-                                        ui.add_space(5.0);
-                                        components::usage_bar(
-                                            ui,
-                                            palette,
-                                            fraction,
-                                            ui.available_width(),
-                                            5.0,
-                                            palette.accent,
-                                        );
-                                        ui.add_space(3.0);
-                                        ui.horizontal(|ui| {
+                                                    ))
+                                                    .color(palette.muted)
+                                                    .size(10.5),
+                                                )
+                                                .truncate(),
+                                            )
+                                            .on_hover_text(&volume.name);
                                             ui.label(
                                                 RichText::new(format!(
                                                     "{} {}",
-                                                    format::size(self.language(), used),
-                                                    self.text(Key::Used)
+                                                    format::size(
+                                                        self.language(),
+                                                        volume.available_space
+                                                    ),
+                                                    self.text(Key::Free)
                                                 ))
                                                 .color(palette.muted)
-                                                .size(10.0),
+                                                .size(10.5),
                                             );
-                                            ui.with_layout(
-                                                Layout::right_to_left(Align::Center),
-                                                |ui| {
-                                                    ui.label(
-                                                        RichText::new(format::size(
-                                                            self.language(),
-                                                            volume.total_space,
-                                                        ))
-                                                        .color(palette.muted)
-                                                        .font(FontId::monospace(10.0)),
-                                                    );
-                                                },
+                                            ui.add_space(5.0);
+                                            components::usage_bar(
+                                                ui,
+                                                palette,
+                                                fraction,
+                                                ui.available_width(),
+                                                5.0,
+                                                palette.accent,
                                             );
+                                            ui.add_space(3.0);
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "{} {}",
+                                                        format::size(self.language(), used),
+                                                        self.text(Key::Used)
+                                                    ))
+                                                    .color(palette.muted)
+                                                    .size(10.0),
+                                                );
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Center),
+                                                    |ui| {
+                                                        ui.label(
+                                                            RichText::new(format::size(
+                                                                self.language(),
+                                                                volume.total_space,
+                                                            ))
+                                                            .color(palette.muted)
+                                                            .font(FontId::monospace(10.0)),
+                                                        );
+                                                    },
+                                                );
+                                            });
                                         });
                                     })
                                     .response
@@ -199,6 +181,9 @@ impl DiskCleanupApp {
                                 if response.double_clicked() {
                                     chosen_volume = Some(volume.mount_point.clone());
                                     scan_volume = true;
+                                }
+                                if (index + 1) % columns == 0 {
+                                    ui.end_row();
                                 }
                             }
                         });
@@ -222,41 +207,39 @@ impl DiskCleanupApp {
                         .corner_radius(tokens::RADIUS_CARD)
                         .inner_margin(10)
                         .show(ui, |ui| {
-                            ui.horizontal(|ui| {
+                            ui.set_width((ui.available_width() - 22.0).max(0.0));
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!(
+                                        "{}  {}",
+                                        icons::FOLDER,
+                                        format::file_name(&path)
+                                    ))
+                                    .font(theme::medium(12.5)),
+                                )
+                                .truncate(),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&recent_text).color(palette.muted).size(10.0),
+                                )
+                                .truncate(),
+                            );
+                            if let Some(entry) = cached {
+                                let now = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .map_or(0, |duration| duration.as_secs())
+                                    .saturating_sub(entry.scanned_at.elapsed().as_secs());
                                 ui.label(
-                                    RichText::new(icons::FOLDER)
-                                        .font(FontId::proportional(16.0))
-                                        .color(palette.accent),
+                                    RichText::new(format!(
+                                        "{} · {}",
+                                        format::age(self.language(), now as i64),
+                                        self.text(Key::Cached)
+                                    ))
+                                    .color(palette.muted)
+                                    .size(10.0),
                                 );
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        RichText::new(format::file_name(&path))
-                                            .font(theme::medium(12.5)),
-                                    );
-                                    ui.label(
-                                        RichText::new(format::shorten_middle(&recent_text, 72))
-                                            .color(palette.muted)
-                                            .size(10.0),
-                                    );
-                                });
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if let Some(entry) = cached {
-                                        let now = SystemTime::now()
-                                            .duration_since(UNIX_EPOCH)
-                                            .map_or(0, |duration| duration.as_secs())
-                                            .saturating_sub(entry.scanned_at.elapsed().as_secs());
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{} · {}",
-                                                format::age(self.language(), now as i64),
-                                                self.text(Key::Cached)
-                                            ))
-                                            .color(palette.muted)
-                                            .size(10.0),
-                                        );
-                                    }
-                                });
-                            });
+                            }
                         })
                         .response
                         .interact(Sense::click())
