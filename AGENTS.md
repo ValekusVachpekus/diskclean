@@ -375,6 +375,19 @@ acceptance remain open. Verification: all 151 workspace tests (42 GUI), fmt,
 Linux/Windows all-targets workspace clippy -D warnings and locked Linux workspace
 release build pass. See `docs/plan.md`.
 
+GOG/Heroic GOG milestone (2026-10-29): platform reads bounded Heroic installed
+stores and `goggame-<id>.info` files. Core GOG provider lives in
+`crates/diskclean-core/src/applications/gog.rs` and shares the existing read-only
+size, cancellation and mount/link policy. Heroic GOG auto-detection uses native
+and Flatpak roots; direct GOG takes an explicit game or shallow library folder.
+Names use matching local info or folder names, shared installation sizes are not
+summed, and gogdl resume markers keep status uncertain. GUI/CLI expose both
+sources. Reads cap at 8 MiB/20k installed rows; shallow discovery caps at 100k
+entries. No dependencies added. Galaxy registry and Linux `gameinfo`-only layouts
+are not claimed; next source is Lutris. Verification: all 159 workspace tests
+(43 GUI), fmt, Linux/Windows all-targets workspace clippy -D warnings and locked
+Linux workspace release build pass. Interactive Windows smoke remains open.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -388,8 +401,9 @@ release build pass. See `docs/plan.md`.
 4. Exact duplicates: size -> prefix hash -> full BLAKE3, hardlink handling.
    **Complete.**
 5. Apps/games: **In progress.** Steam, Epic, Legendary and Heroic Epic inventory
-   GUI/CLI implemented; next GOG (including Heroic), then Lutris,
-   registry/packages and leftovers. Heroic GOG/Amazon are not yet covered.
+   GUI/CLI implemented, plus Heroic GOG and explicit GOG `.info` folders. Next:
+   Lutris, registry/packages and leftovers. GOG Galaxy registry, Linux
+   `gameinfo`-only layouts and Heroic Amazon/third-party remain open.
 6. Similar photos via `czkawka_core`.
 7. Similar videos via `czkawka_core` + system `ffmpeg`.
 8. System command recommendations and packaging polish.

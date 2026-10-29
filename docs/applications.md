@@ -1,17 +1,20 @@
 # Applications and games
 
 Phase 4 is in progress. Steam, Epic Games Launcher, Legendary and Heroic Epic
-inventory are implemented. Discovery is read-only and works offline; it never uninstalls games or creates cleanup selections.
+inventory are implemented, plus Heroic GOG and explicit GOG `.info` sources.
+Discovery is read-only and works offline; it never uninstalls games or creates cleanup selections.
 
 ## Usage
 
 In **Applications** (`Ctrl+4`), leave the root empty to search common launcher
 locations. Alternatively select a provider and enter its source folder: Steam
 or SteamLibrary (containing `steamapps`), Epic `Manifests`, or Legendary config
-(containing `installed.json`, also used by Heroic Epic).
+(containing `installed.json`, also used by Heroic Epic). GOG accepts game/library
+folders with `.info` files; Heroic GOG accepts its Heroic config root.
 Click **Find applications** (or **Refresh list** after a search). Library path
 controls are inside **Choose a source folder…**, with a provider selector.
-An empty root searches all implemented sources. Epic is automatic on Windows;
+An empty root searches the automatic sources; standalone GOG folders remain
+explicit. Epic is automatic on Windows;
 on Linux its `.item` directory must be explicit. The previous inventory remains
 visible while the background job runs; cancellation or a worker error preserves
 it. Results use a responsive card grid with size and installation status.
@@ -94,8 +97,8 @@ Only field names/format were consulted; no Python implementation is imported.
 
 Both providers read **only `installed.json`**, an object keyed by app ID. Choose
 **Legendary** or **Heroic (Epic)** and enter the folder containing this file.
-Heroic here covers its Epic backend; GOG, Amazon and third-party installed-game
-lists are not read. Account catalogs, `user.json`, executable/launch commands,
+The **Heroic (Epic)** selector covers this backend; **Heroic (GOG)** is a
+separate implemented source below. Amazon and third-party lists are not read. Account catalogs, `user.json`, executable/launch commands,
 save paths and authentication are never consulted or executed.
 
 Automatic locations:
@@ -138,6 +141,52 @@ and Heroic's
 [Legendary paths](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/blob/main/src/backend/storeManagers/legendary/constants.ts).
 The implementation reads local metadata directly; no launcher code is imported.
 
+## GOG and Heroic GOG
+
+**Heroic (GOG)** reads `<heroic-config>/gog_store/installed.json`, an object
+with an `installed` array. Use `--provider heroic-gog` with the Heroic config
+root, not its Epic/Legendary subfolder. Automatic detection uses native Heroic
+roots and Linux Flatpak roots described above, and skips absent optional stores.
+Only installed records are consumed; account libraries, auth and launch commands
+are not used. Invalid rows or repeated IDs produce issues while valid rows
+survive. `appName` must be a numeric GOG ID and `install_path` a native absolute
+path without traversal or a filesystem root. Reads cap at 8 MiB, 20k records and
+the default JSON recursion limit.
+
+**GOG** (`--provider gog`) accepts an explicit game folder or a library whose
+game folders are its immediate children. It looks for `goggame-<id>.info` in
+those folders only. The numeric `gameId` must match the filename; names and
+optional build IDs come from local JSON. Discovery is capped at 100k directory
+entries, cancellable and subject to mount/link checks. It does not probe drives
+recursively or query the Galaxy registry. Native Linux installations with only
+`gameinfo` and no `.info` file are a remaining format extension.
+
+For Heroic GOG, matching `.info` improves name/build evidence; otherwise the
+installation folder supplies a readable name. A present installed record and
+directory indicate Installed; malformed optional info or a `.gogdl-resume`
+marker makes it uncertain. Direct GOG uses matching local info plus directory
+presence as installation evidence. This is not content-integrity verification.
+Missing Heroic installation folders stay Missing, not disposable leftovers.
+Sizes measure the complete installation folder with the shared scanner; they
+do not use `install_size`. Multiple base/DLC records can share a measured folder;
+there is no summed inventory total. Separate saves/prefixes are not included.
+
+```bash
+cargo run -p diskclean-cli -- applications /path/to/GOG-Games --provider gog --json
+cargo run -p diskclean-cli -- applications /path/to/heroic --provider heroic-gog --json
+```
+
+Fixtures cover malformed/bounded metadata, filename mismatches, invalid rows,
+shared installation folders/hardlinks, fallback names, missing folders,
+unfinished downloads, links/mounts, source isolation and EN/RU GUI source/details
+in both themes. Native Windows runtime smoke remains open.
+
+Format references: Heroic's
+[GOG installed-store definition](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/blob/main/src/backend/storeManagers/gog/electronStores.ts),
+[GOG info format](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/blob/main/src/common/types/gog.ts),
+and [local install handling](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/blob/main/src/backend/storeManagers/gog/library.ts).
+Only formats were consulted; launcher code is not imported.
+
 ## Boundaries and tests
 
 Platform owns local metadata access and the text KeyValues parser. Core maps
@@ -168,7 +217,8 @@ The parser here is implemented locally without importing another parser.
 
 ## Remaining Phase 4 work
 
-Next: GOG inventory including Heroic GOG. Lutris, Heroic Amazon/third-party,
+Next: Lutris. GOG Galaxy registry, native Linux `gameinfo`-only layouts,
+Heroic Amazon/third-party,
 Windows registry and Linux package discovery remain; related
 folder ownership; P1 category totals; and P2 explained leftovers with explicit
 review through the audited trash pipeline. No missing-manifest heuristic marks

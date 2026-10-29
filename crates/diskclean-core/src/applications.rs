@@ -8,6 +8,9 @@ use serde::Serialize;
 
 use crate::{ScanControl, ScanError, ScanIssue, ScanOptions, scan};
 
+mod gog;
+pub use gog::discover_gog;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallationStatus {
@@ -330,6 +333,8 @@ pub enum ApplicationSource {
     Epic,
     Legendary,
     Heroic,
+    Gog,
+    HeroicGog,
 }
 
 /// Legendary config directories, including Heroic's Epic backend. Account-wide
@@ -443,6 +448,12 @@ pub fn discover_applications(
         return match source {
             ApplicationSource::Steam => discover_steam(roots, options, control),
             ApplicationSource::Epic => discover_epic(roots, options, control),
+            ApplicationSource::Gog | ApplicationSource::HeroicGog => discover_gog(
+                roots,
+                source == ApplicationSource::HeroicGog,
+                options,
+                control,
+            ),
             ApplicationSource::Legendary | ApplicationSource::Heroic => {
                 discover_legendary(roots, source == ApplicationSource::Heroic, options, control)
             }
@@ -463,10 +474,21 @@ pub fn discover_applications(
             ApplicationSource::Heroic,
             diskclean_platform::legendary::heroic_roots(),
         ),
+        (
+            ApplicationSource::HeroicGog,
+            diskclean_platform::gog::heroic_roots(),
+        ),
     ] {
         let roots: Vec<_> = roots
             .into_iter()
-            .filter(|path| path.symlink_metadata().is_ok())
+            .filter(|path| {
+                let probe = if source == ApplicationSource::HeroicGog {
+                    path.join("gog_store/installed.json")
+                } else {
+                    path.clone()
+                };
+                probe.symlink_metadata().is_ok()
+            })
             .collect();
         let other = discover_applications(Some(&roots), source, options, control)?;
         report.applications.extend(other.applications);

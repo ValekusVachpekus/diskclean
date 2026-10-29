@@ -52,9 +52,9 @@ enum Command {
 #[derive(Debug, Args)]
 struct ApplicationsArgs {
     /// Provider for an explicit path (Steam by default).
-    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic"], requires = "path")]
+    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic", "gog", "heroic-gog"], requires = "path")]
     provider: Option<String>,
-    /// Steam library, Epic Manifests or Legendary config folder; omit for all sources.
+    /// Launcher library/config folder (Heroic GOG takes its Heroic config root).
     path: Option<PathBuf>,
     #[arg(long)]
     json: bool,
@@ -260,6 +260,8 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
     let report = diskclean_core::applications::discover_applications(
         roots.as_deref(),
         match args.provider.as_deref() {
+            Some("gog") => diskclean_core::applications::ApplicationSource::Gog,
+            Some("heroic-gog") => diskclean_core::applications::ApplicationSource::HeroicGog,
             Some("epic") => diskclean_core::applications::ApplicationSource::Epic,
             Some("legendary") => diskclean_core::applications::ApplicationSource::Legendary,
             Some("heroic") => diskclean_core::applications::ApplicationSource::Heroic,

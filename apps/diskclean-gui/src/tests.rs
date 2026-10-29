@@ -1609,3 +1609,58 @@ fn legendary_and_heroic_cards_show_localized_evidence_and_source_settings() {
         }
     }
 }
+
+#[test]
+fn gog_cards_and_wrapping_source_picker_work_in_both_languages_and_themes() {
+    use crate::i18n::Key;
+    use diskclean_core::applications::ApplicationSource;
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            for (source, launcher, hint, evidence) in [
+                (
+                    ApplicationSource::Gog,
+                    "GOG",
+                    Key::GogRootHint,
+                    Key::GogOwnership,
+                ),
+                (
+                    ApplicationSource::HeroicGog,
+                    "Heroic (GOG)",
+                    Key::HeroicGogRootHint,
+                    Key::HeroicGogOwnership,
+                ),
+            ] {
+                let mut app = test_app(english_settings(), false);
+                app.settings.language = language;
+                app.settings.theme = theme;
+                app.workspace = Workspace::Applications;
+                let mut report = applications_ui_fixture();
+                report.applications[0].name = "GOG Game".into();
+                report.applications[0].launcher = launcher.into();
+                app.applications.report = Some(report);
+                let mut harness = harness(app, Vec2::new(600.0, 600.0));
+                harness.get_by_label("GOG Game").click();
+                harness.run();
+                assert!(harness.query_by_label(language.text(evidence)).is_some());
+                assert!(
+                    harness
+                        .query_by_label(language.text(Key::EpicOwnership))
+                        .is_none()
+                );
+                assert!(harness.state().cleanup.selected.is_empty());
+                harness.get_by_label(language.text(Key::Close)).click();
+                harness.run();
+                harness
+                    .get_by_label(language.text(Key::SteamLibrarySettings))
+                    .click();
+                harness.run();
+                let button = harness.get_by_label(launcher);
+                assert!(button.rect().right() <= 600.0);
+                button.click();
+                harness.run();
+                assert_eq!(harness.state().applications.source, source);
+                assert!(harness.query_by_label(language.text(hint)).is_some());
+            }
+        }
+    }
+}

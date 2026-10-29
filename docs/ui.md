@@ -303,3 +303,9 @@ selector (Steam, Epic Games, Legendary, Heroic Epic) that wraps on narrow window
 Automatic discovery searches all implemented formats. Heroic/Legendary details
 explain that GOG/Amazon are separate sources; cards retain their launcher labels.
 EN/RU dark/light regression covers source selection and details at 600 px.
+
+GOG follow-up (2026-10-29): six sources now include GOG and Heroic GOG. The
+wrapped source picker distinguishes GOG game/library folders from Heroic config
+roots. Details explain local info/folder-name evidence; unfinished downloads
+stay uncertain and sizes remain installation-only. EN/RU dark/light tests cover
+both new selectors and details at 600 px.

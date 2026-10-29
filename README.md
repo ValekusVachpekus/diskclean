@@ -18,7 +18,7 @@ explanation and a risk level.
 - [x] Linux release build verified
 - [ ] Interactive Windows runtime test (the Windows target compiles and passes
       clippy)
-- [x] Steam/Epic/Legendary and Heroic Epic inventory with measured sizes (GUI + CLI)
+- [x] Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG inventory with measured sizes (GUI + CLI)
 - [ ] Other launchers, packages and explained application leftovers
 - [ ] Similar photos/videos
 - [ ] Packaging
@@ -32,7 +32,10 @@ Heroic Epic locations, or select a source folder in the collapsed settings.
 Steam accepts a Steam/SteamLibrary folder; Epic accepts its `Manifests` folder
 with `.item` files (automatic detection on Windows). Legendary and Heroic Epic
 accept the config folder containing `installed.json`; native and Linux Flatpak
-Heroic locations are detected. Heroic GOG/Amazon are separate, pending providers.
+Heroic locations are detected. Heroic GOG uses the Heroic config root containing
+`gog_store/installed.json`. Direct GOG accepts a game or shallow library folder
+with `goggame-*.info`. Galaxy registry discovery, native Linux `gameinfo`-only
+layouts and Heroic Amazon remain pending.
 Search measures installation sizes in the
 background, supports cancellation and opens individual games in Analyze.
 Results appear as responsive cards, with games first and Steam components
@@ -47,6 +50,8 @@ cargo run -p diskclean-cli -- applications /path/to/Steam --json
 cargo run -p diskclean-cli -- applications /path/to/Manifests --provider epic --json
 cargo run -p diskclean-cli -- applications /path/to/legendary --provider legendary --json
 cargo run -p diskclean-cli -- applications /path/to/heroic/legendaryConfig/legendary --provider heroic --json
+cargo run -p diskclean-cli -- applications /path/to/GOG-Games --provider gog --json
+cargo run -p diskclean-cli -- applications /path/to/heroic --provider heroic-gog --json
 ```
 
 

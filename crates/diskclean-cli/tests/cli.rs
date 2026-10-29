@@ -365,3 +365,42 @@ fn applications_legendary_and_heroic_use_only_installed_records() {
     }
     assert!(install.join("data.bin").exists());
 }
+
+#[test]
+fn applications_gog_and_heroic_gog_measure_local_installations() {
+    let temp = tempdir().expect("temp");
+    let game = temp.path().join("Game");
+    write_file(&game.join("data.bin"), 333);
+    let info = r#"{"gameId":"123","name":"GOG Test Game","buildId":"v1"}"#;
+    fs::write(game.join("goggame-123.info"), info).expect("info");
+    let config = temp.path().join("heroic");
+    fs::create_dir_all(config.join("gog_store")).expect("store");
+    fs::write(
+        config.join("gog_store/installed.json"),
+        serde_json::json!({"installed":[{"appName":"123","install_path":game}]}).to_string(),
+    )
+    .expect("store");
+    for (root, provider, launcher) in [
+        (&game, "gog", "GOG"),
+        (&config, "heroic-gog", "Heroic (GOG)"),
+    ] {
+        let output = diskclean()
+            .arg("applications")
+            .arg(root)
+            .args(["--provider", provider, "--json"])
+            .output()
+            .expect("run");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+        assert_eq!(report["applications"].as_array().expect("apps").len(), 1);
+        assert_eq!(report["applications"][0]["name"], "GOG Test Game");
+        assert_eq!(report["applications"][0]["launcher"], launcher);
+        assert_eq!(report["applications"][0]["logical_bytes"], 333 + info.len());
+        assert_eq!(report["applications"][0]["status"], "installed");
+    }
+    assert!(game.join("data.bin").exists());
+}

@@ -7,7 +7,7 @@ here so a fresh agent can recover context after a reset.
 Last updated: 2026-10-29.
 
 Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
-Next: GOG inventory (including Heroic), then Lutris, registry/packages and P2 ownership/leftovers;
+Next: Lutris inventory, then Windows registry/packages and P2 ownership/leftovers;
 do not restart U3 checks as the next feature milestone. Outstanding release
 checks below remain separately tracked.
 
@@ -44,7 +44,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4 applications/games | In progress | Steam/Epic/Legendary + Heroic Epic inventory, measured sizes, GUI/CLI; GOG next, other providers and leftovers remain |
+| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info inventory; Lutris next; registry/packages and leftovers remain |
 | Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -467,16 +467,18 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
 - [x] Localized Applications workspace with background search/cancel, virtualized
       card grid, grouped Steam components, cached search, details modal, Copy path
       and drill-down to Analyze; Ctrl+4.
-- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic`, worker
+- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog`, worker
       and mount-boundary options.
 - [x] Epic `.item` inventory: native Windows automatic location, explicit
       manifest directory, measured sizes, partial/missing/unknown states, GUI/CLI.
 - [x] Legendary and Heroic Epic installed-game records: native/Flatpak config
       locations and explicit config folders, measured sizes and GUI/CLI sources.
-- [ ] Next provider: GOG inventory, including Heroic GOG. Heroic Amazon and
-      third-party installed records are not covered by the Epic backend.
-- [ ] Remaining providers: GOG/Lutris, Windows registry and Linux
-      package inventories.
+- [x] Heroic GOG installed-store inventory (native/Flatpak auto locations) and
+      explicit GOG game/library folders with `goggame-*.info`; GUI/CLI and sizes.
+- [ ] GOG extensions: Galaxy registry discovery and native Linux `gameinfo`
+      layouts without `.info` metadata. Heroic Amazon/third-party remain separate.
+- [ ] Next provider: Lutris. Windows registry and Linux package inventories
+      remain open.
 - [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
 - [ ] Interactive Windows provider smoke.
 
@@ -560,6 +562,21 @@ cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Phase 4, GOG metadata/Heroic GOG): Added offline Heroic
+  `gog_store/installed.json` discovery, native/Flatpak auto locations and explicit
+  Heroic config roots. Added explicit GOG game or shallow library sources using
+  `goggame-<id>.info`, with filename/ID validation. Names come from matching local
+  info or the installation folder; catalog/auth data is not read. Sizes reuse
+  scanner hardlink/partial accounting and shared-directory caching. A gogdl
+  resume marker or malformed optional metadata makes status uncertain; absent
+  installations stay missing. Six-way source selection wraps in GUI and CLI
+  adds `--provider gog|heroic-gog`. No dependencies added. Direct discovery is
+  bounded to 100k directory entries and does not recursively hunt volumes.
+  Galaxy registry and Linux `gameinfo`-only layouts remain open; next provider is
+  Lutris. Verification: all 159 workspace tests (43 GUI), fmt, Linux/Windows
+  all-targets workspace clippy -D warnings and locked Linux workspace release
+  build pass. Interactive Windows provider smoke remains open.
 
 - 2026-10-29 (Phase 4, Legendary/Heroic Epic): Added bounded offline parsing of
   `installed.json` with per-record validation, ID matching and preservation of
