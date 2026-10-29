@@ -52,7 +52,7 @@ enum Command {
 #[derive(Debug, Args)]
 struct ApplicationsArgs {
     /// Provider for an explicit path (Steam by default); registry takes no path.
-    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic", "gog", "heroic-gog", "lutris", "registry"])]
+    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic", "gog", "heroic-gog", "lutris", "registry", "dpkg", "pacman"])]
     provider: Option<String>,
     /// Launcher library/config folder (Heroic GOG takes its Heroic config root).
     path: Option<PathBuf>,
@@ -273,6 +273,8 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
     let report = diskclean_core::applications::discover_applications(
         roots.as_deref(),
         match args.provider.as_deref() {
+            Some("dpkg") => diskclean_core::applications::ApplicationSource::Dpkg,
+            Some("pacman") => diskclean_core::applications::ApplicationSource::Pacman,
             Some("registry") => diskclean_core::applications::ApplicationSource::Registry,
             Some("lutris") => diskclean_core::applications::ApplicationSource::Lutris,
             Some("gog") => diskclean_core::applications::ApplicationSource::Gog,
@@ -300,6 +302,9 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
                 app.status,
                 app.allocated_bytes
                     .map(format_bytes)
+                    .or_else(|| app
+                        .reported_size_bytes
+                        .map(|bytes| format!("{} (package estimate)", format_bytes(bytes))))
                     .unwrap_or_else(|| "unknown size".into()),
                 if app.install_path.as_os_str().is_empty() {
                     "installation folder unknown".into()

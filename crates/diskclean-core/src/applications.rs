@@ -10,9 +10,11 @@ use crate::{ScanControl, ScanError, ScanIssue, ScanOptions, scan};
 
 mod gog;
 mod lutris;
+mod packages;
 mod registry;
 pub use gog::discover_gog;
 pub use lutris::discover_lutris;
+pub use packages::discover_packages;
 pub use registry::discover_registry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -37,6 +39,8 @@ pub struct Application {
     /// Registry evidence is not a filesystem path; manifest_path is empty here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registry_key: Option<String>,
+    /// Package manager estimate, never a measurement or cleanup saving.
+    pub reported_size_bytes: Option<u64>,
     pub allocated_bytes: Option<u64>,
     pub logical_bytes: Option<u64>,
     /// A scan issue or skipped mount makes the measured size a lower bound.
@@ -187,6 +191,7 @@ pub fn discover_steam(
                 install_path: install_path.clone(),
                 manifest_path: path,
                 registry_key: None,
+                reported_size_bytes: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -304,6 +309,7 @@ pub fn discover_epic(
                 install_path: manifest.install_location,
                 manifest_path: path,
                 registry_key: None,
+                reported_size_bytes: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -347,6 +353,8 @@ pub enum ApplicationSource {
     HeroicGog,
     Lutris,
     Registry,
+    Dpkg,
+    Pacman,
 }
 
 /// Legendary config directories, including Heroic's Epic backend. Account-wide
@@ -418,6 +426,7 @@ pub fn discover_legendary(
                 install_path: game.install_path,
                 manifest_path: path.clone(),
                 registry_key: None,
+                reported_size_bytes: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -471,6 +480,16 @@ pub fn discover_applications(
                 }
                 discover_registry(options, control)
             }
+            ApplicationSource::Dpkg | ApplicationSource::Pacman => discover_packages(
+                roots,
+                if source == ApplicationSource::Dpkg {
+                    diskclean_platform::packages::PackageManager::Dpkg
+                } else {
+                    diskclean_platform::packages::PackageManager::Pacman
+                },
+                options,
+                control,
+            ),
             ApplicationSource::Lutris => discover_lutris(roots, options, control),
             ApplicationSource::Steam => discover_steam(roots, options, control),
             ApplicationSource::Epic => discover_epic(roots, options, control),
@@ -488,6 +507,14 @@ pub fn discover_applications(
     let mut report = ApplicationsReport::default();
     for (source, roots) in [
         (ApplicationSource::Steam, steam::default_roots()),
+        (
+            ApplicationSource::Dpkg,
+            diskclean_platform::packages::PackageManager::Dpkg.default_roots(),
+        ),
+        (
+            ApplicationSource::Pacman,
+            diskclean_platform::packages::PackageManager::Pacman.default_roots(),
+        ),
         (
             ApplicationSource::Lutris,
             diskclean_platform::lutris::default_roots(),
@@ -515,6 +542,7 @@ pub fn discover_applications(
                 let probe = match source {
                     ApplicationSource::HeroicGog => path.join("gog_store/installed.json"),
                     ApplicationSource::Lutris => path.join("pga.db"),
+                    ApplicationSource::Dpkg => path.join("status"),
                     _ => path.clone(),
                 };
                 probe.symlink_metadata().is_ok()

@@ -34,8 +34,9 @@ pub(crate) struct ApplicationsWorkspace {
     message: Option<Key>,
     pub(crate) search: String,
     pub(crate) show_components: bool,
+    pub(crate) show_packages: bool,
     view_key: Option<(usize, usize, String)>,
-    groups: [Vec<usize>; 2],
+    groups: [Vec<usize>; 3],
 }
 
 impl DiskCleanupApp {
@@ -164,6 +165,8 @@ impl DiskCleanupApp {
                             (ApplicationSource::Heroic, "Heroic (Epic)"),
                             (ApplicationSource::Gog, "GOG"),
                             (ApplicationSource::Lutris, "Lutris"),
+                            (ApplicationSource::Dpkg, "dpkg"),
+                            (ApplicationSource::Pacman, "pacman"),
                             (
                                 ApplicationSource::Registry,
                                 language.text(Key::RegistrySource),
@@ -176,6 +179,8 @@ impl DiskCleanupApp {
                 });
                 let hint = match self.applications.source {
                     ApplicationSource::Lutris => Key::LutrisRootHint,
+                    ApplicationSource::Dpkg => Key::DpkgRootHint,
+                    ApplicationSource::Pacman => Key::PacmanRootHint,
                     ApplicationSource::Registry => Key::RegistryRootHint,
                     ApplicationSource::Gog => Key::GogRootHint,
                     ApplicationSource::HeroicGog => Key::HeroicGogRootHint,
@@ -270,11 +275,16 @@ impl DiskCleanupApp {
                         origin + vec2(0.0, offset),
                         vec2(width, GROUP_HEIGHT),
                     );
-                    let expanded = group == 0 || self.applications.show_components || searching;
-                    let key = if group == 0 {
-                        Key::ApplicationGames
-                    } else {
-                        Key::ApplicationComponents
+                    let expanded = searching
+                        || match group {
+                            0 => true,
+                            1 => self.applications.show_components,
+                            _ => self.applications.show_packages,
+                        };
+                    let key = match group {
+                        0 => Key::ApplicationGames,
+                        1 => Key::ApplicationComponents,
+                        _ => Key::ApplicationPackages,
                     };
                     if offset + GROUP_HEIGHT >= viewport.top() && offset <= viewport.bottom() {
                         ui.scope_builder(
@@ -296,11 +306,20 @@ impl DiskCleanupApp {
                                 if group == 0 {
                                     ui.label(RichText::new(title).strong().color(palette.text));
                                 } else if components::secondary_button(ui, palette, &title)
-                                    .on_hover_text(language.text(Key::ApplicationComponentsHint))
+                                    .on_hover_text(language.text(if group == 1 {
+                                        Key::ApplicationComponentsHint
+                                    } else {
+                                        Key::ApplicationPackagesHint
+                                    }))
                                     .clicked()
                                 {
-                                    self.applications.show_components =
-                                        !self.applications.show_components;
+                                    if group == 1 {
+                                        self.applications.show_components =
+                                            !self.applications.show_components;
+                                    } else {
+                                        self.applications.show_packages =
+                                            !self.applications.show_packages;
+                                    }
                                 }
                             },
                         );
@@ -399,14 +418,20 @@ impl ApplicationsWorkspace {
             {
                 continue;
             }
-            self.groups[usize::from(steam_component(app))].push(index);
+            self.groups[if system_package(app) {
+                2
+            } else {
+                usize::from(steam_component(app))
+            }]
+            .push(index);
         }
         for group in &mut self.groups {
             group.sort_by(|a, b| {
                 let a = &report.applications[*a];
                 let b = &report.applications[*b];
                 b.allocated_bytes
-                    .cmp(&a.allocated_bytes)
+                    .or(b.reported_size_bytes)
+                    .cmp(&a.allocated_bytes.or(a.reported_size_bytes))
                     .then(a.name.cmp(&b.name))
                     .then(a.id.cmp(&b.id))
             });
@@ -475,7 +500,14 @@ fn application_card(
     painter.galley(egui::pos2(left, rect.top() + 14.0), title, palette.text);
     let size = app
         .allocated_bytes
-        .map(|bytes| format::size(language, bytes))
+        .or(app.reported_size_bytes)
+        .map(|bytes| {
+            if system_package(app) {
+                format!("≈ {}", format::size(language, bytes))
+            } else {
+                format::size(language, bytes)
+            }
+        })
         .unwrap_or_else(|| language.text(Key::Unknown).to_owned());
     painter.text(
         egui::pos2(left, rect.top() + 63.0),
@@ -504,7 +536,9 @@ fn application_card(
         status_galley,
         palette.muted,
     );
-    let footer = if app.allocated_bytes.is_some() && !app.size_complete {
+    let footer = if system_package(app) {
+        Key::PackageReportedSize
+    } else if app.allocated_bytes.is_some() && !app.size_complete {
         Key::ApplicationPartialSize
     } else {
         Key::ApplicationOpenDetails
@@ -527,6 +561,10 @@ fn application_card(
             ""
         }
     ))
+}
+
+fn system_package(app: &Application) -> bool {
+    matches!(app.launcher.as_str(), "dpkg" | "pacman")
 }
 
 fn launcher_label(app: &Application, language: crate::i18n::Language) -> &str {
@@ -582,18 +620,40 @@ impl DiskCleanupApp {
                             .map(|bytes| format::size(language, bytes))
                             .unwrap_or_else(|| language.text(Key::Unknown).into());
                         components::stat_row(ui, palette, language.text(Key::Size), &bytes);
+                        if system_package(app) {
+                            let estimate = app
+                                .reported_size_bytes
+                                .map(|n| format::size(language, n))
+                                .unwrap_or_else(|| language.text(Key::Unknown).into());
+                            components::stat_row(
+                                ui,
+                                palette,
+                                language.text(Key::PackageReportedSize),
+                                &estimate,
+                            );
+                            ui.label(format!(
+                                "{}: {}",
+                                language.text(Key::PackageIdentity),
+                                app.id
+                            ));
+                        }
                         if !app.size_complete && app.allocated_bytes.is_some() {
                             ui.label(language.text(Key::ApplicationPartialSizeHelp));
                         }
                         ui.add_space(8.0);
                         if app.install_path.as_os_str().is_empty() {
-                            ui.label(language.text(Key::ApplicationNoInstallPath));
+                            ui.label(language.text(if system_package(app) {
+                                Key::PackageNoInstallPath
+                            } else {
+                                Key::ApplicationNoInstallPath
+                            }));
                         }
                         let path = app.install_path.to_string_lossy();
                         ui.add(egui::Label::new(path.as_ref()).truncate())
                             .on_hover_text(path.as_ref());
                         ui.label(language.text(match app.launcher.as_str() {
                             "Lutris" => Key::LutrisOwnership,
+                            "dpkg" | "pacman" => Key::PackageOwnership,
                             "Windows Registry" => Key::RegistryOwnership,
                             "GOG" => Key::GogOwnership,
                             "Heroic (GOG)" => Key::HeroicGogOwnership,
@@ -601,7 +661,15 @@ impl DiskCleanupApp {
                             "Legendary" | "Heroic (Epic)" => Key::LegendaryOwnership,
                             _ => Key::EpicOwnership,
                         }));
-                        ui.label(language.text(Key::ApplicationDataScope));
+                        if !system_package(app) {
+                            ui.label(language.text(Key::ApplicationDataScope));
+                        }
+                        if system_package(app) {
+                            let evidence = app.manifest_path.to_string_lossy();
+                            ui.label(language.text(Key::ApplicationEvidence));
+                            ui.add(egui::Label::new(evidence.as_ref()).truncate())
+                                .on_hover_text(evidence.as_ref());
+                        }
                         if let Some(key) = &app.registry_key {
                             ui.label(language.text(Key::ApplicationEvidence));
                             ui.add(egui::Label::new(key).truncate()).on_hover_text(key);
@@ -610,7 +678,11 @@ impl DiskCleanupApp {
                             ui.add(
                                 egui::Label::new(format!(
                                     "{}: {build}",
-                                    language.text(Key::ApplicationBuild)
+                                    language.text(if system_package(app) {
+                                        Key::PackageVersion
+                                    } else {
+                                        Key::ApplicationBuild
+                                    })
                                 ))
                                 .truncate(),
                             )

@@ -7,7 +7,7 @@ here so a fresh agent can recover context after a reset.
 Last updated: 2026-10-29.
 
 Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
-Next: Linux package inventory, then P2 ownership/leftovers;
+Next: Flatpak/Snap inventory, then P2 ownership/leftovers;
 do not restart U3 checks as the next feature milestone. Outstanding release
 checks below remain separately tracked.
 
@@ -44,7 +44,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info and Linux Lutris and Windows Uninstall inventory; packages and leftovers remain |
+| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info and Linux Lutris and Windows Uninstall plus dpkg/pacman inventory; Flatpak/Snap and leftovers remain |
 | Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -467,7 +467,7 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
 - [x] Localized Applications workspace with background search/cancel, virtualized
       card grid, grouped Steam components, cached search, details modal, Copy path
       and drill-down to Analyze; Ctrl+4.
-- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog|lutris|registry`, worker
+- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog|lutris|registry|dpkg|pacman`, worker
       and mount-boundary options.
 - [x] Epic `.item` inventory: native Windows automatic location, explicit
       manifest directory, measured sizes, partial/missing/unknown states, GUI/CLI.
@@ -483,11 +483,16 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
       optional measured folders, bounded read-only access, GUI/CLI and cancellation.
       Includes GOG games that have Uninstall records; vendor-specific Galaxy keys
       remain in the GOG extensions item above.
-- [ ] Next provider: Linux packages (dpkg/pacman/Flatpak/Snap).
+- [x] Linux dpkg/pacman installed-package metadata: native automatic roots,
+      explicit database folders, version/architecture, separate declared-size
+      estimates, collapsed package cards and no installation-folder actions.
+- [ ] Next providers: Flatpak/Snap (offline inventory and shared-runtime sizing).
 - [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
 - [ ] Interactive Windows provider smoke.
 
-Installation sizes exclude separate saves, shader caches and Proton prefixes.
+Measured launcher installation sizes exclude separate saves, shader caches and
+Proton prefixes outside the recorded folder. Package estimates are separate
+metadata, never disk measurements or cleanup savings.
 Shared installation directories may belong to multiple records; no aggregate
 sum is shown. Symlinks/reparse points and mount crossings are rejected by
 default; metadata input has size/depth/entry bounds. Inventory does not create
@@ -567,6 +572,27 @@ cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Phase 4, dpkg/pacman): Added read-only native Linux automatic
+  and explicit-folder inventory from dpkg `status` and pacman local `*/desc`.
+  Names, versions, architectures and installed state come from the local DB;
+  dpkg config-files/partial/broken states are excluded. dpkg Installed-Size
+  (KiB) and pacman SIZE/legacy ISIZE (bytes) populate reported_size_bytes;
+  allocated/logical sizes remain unknown. No /usr walk or package-manager/script
+  execution. Package cards form their own collapsed group, expand on search and
+  show an explicit estimate label/≈. EN/RU details explain distributed files,
+  dependencies, metadata evidence and external package-manager removal; no path
+  actions or cleanup candidates. Text readers reject links/changed files and
+  bound bytes/lines/stanzas/fields/entries; malformed neighbors/size fields and
+  duplicate identities produce issues without hiding valid packages. This is
+  a live metadata observation, not an atomic transaction or ownership proof.
+  No new dependencies or unsafe code. Native pacman smoke found 1691 packages,
+  1682 reported sizes and zero issues; no sizes were presented as measured.
+  Flatpak/Snap, RPM and custom DBPath/config interpretation remain outside this
+  milestone. Next: Flatpak/Snap. Verification: all 184 workspace tests (46 GUI),
+  fmt, Linux/Windows all-targets clippy -D warnings, diff whitespace and locked
+  Linux workspace release build pass. Native dpkg/runtime GUI acceptance and
+  interactive Windows gates remain open.
 
 - 2026-10-29 (Phase 4, Windows Uninstall): Added native HKCU/HKLM Uninstall
   inventory with explicit 32/64-bit registry views, query/enumerate-only handles,

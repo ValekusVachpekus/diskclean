@@ -464,3 +464,50 @@ fn registry_provider_rejects_paths_and_other_providers_require_them() {
         .failure()
         .stderr(predicates::str::contains("only available on Windows"));
 }
+
+#[test]
+fn package_inventories_keep_estimates_separate_from_measurements() {
+    let temp = tempdir().expect("temp");
+    let dpkg = temp.path().join("dpkg");
+    fs::create_dir(&dpkg).expect("dpkg");
+    let deb = "Package: example\nStatus: install ok installed\nVersion: 1\nArchitecture: amd64\nInstalled-Size: 2\n\nPackage: removed\nStatus: deinstall ok config-files\n";
+    fs::write(dpkg.join("status"), deb).expect("status");
+    let pacman = temp.path().join("local");
+    fs::create_dir_all(pacman.join("example-1-1")).expect("local");
+    let desc = "%NAME%\nexample\n%VERSION%\n1-1\n%ARCH%\nx86_64\n%SIZE%\n2048\n";
+    fs::write(pacman.join("example-1-1/desc"), desc).expect("desc");
+    for (root, provider) in [(&dpkg, "dpkg"), (&pacman, "pacman")] {
+        let output = diskclean()
+            .arg("applications")
+            .arg(root)
+            .args(["--provider", provider, "--json"])
+            .output()
+            .expect("run");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+        assert_eq!(report["applications"].as_array().expect("apps").len(), 1);
+        let row = &report["applications"][0];
+        assert_eq!(row["launcher"], provider);
+        assert_eq!(row["status"], "installed");
+        assert_eq!(row["reported_size_bytes"], 2048);
+        assert!(row["allocated_bytes"].is_null());
+        assert!(row["logical_bytes"].is_null());
+        assert_eq!(row["install_path"], "");
+        diskclean()
+            .arg("applications")
+            .arg(root)
+            .args(["--provider", provider])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains("package estimate"));
+    }
+    assert_eq!(fs::read_to_string(dpkg.join("status")).expect("after"), deb);
+    assert_eq!(
+        fs::read_to_string(pacman.join("example-1-1/desc")).expect("after"),
+        desc
+    );
+}

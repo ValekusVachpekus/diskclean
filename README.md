@@ -20,7 +20,8 @@ explanation and a risk level.
       clippy)
 - [x] Steam/Epic/Legendary, Heroic Epic/GOG, explicit GOG, Linux Lutris and Windows Uninstall
       inventory with measured sizes (GUI + CLI)
-- [ ] Other launchers, packages and explained application leftovers
+- [x] Linux dpkg/pacman package inventory with clearly labeled size estimates
+- [ ] Other launchers, Flatpak/Snap and explained application leftovers
 - [ ] Similar photos/videos
 - [ ] Packaging
 
@@ -43,7 +44,11 @@ On Windows, automatic discovery also reads current-user/machine Uninstall
 registry records in both views. Select **Windows registry** to search only that
 source; it needs no folder. Entries without a usable installation folder retain
 an unknown size. Windows Settings or the original installer handles uninstalling.
-Search measures installation sizes in the
+Linux automatic discovery also reads dpkg/pacman local databases. System packages
+have their own collapsed searchable group, versions and architecture. Their sizes
+are package-manager estimates, separate from measured usage; distributed package
+files have no single folder to open in Analyze. Flatpak/Snap remain planned.
+Search measures launcher installation sizes in the
 background, supports cancellation and opens individual games in Analyze.
 Results appear as responsive cards, with games first and Steam components
 collapsed. Search covers names and paths; a card opens details without moving
@@ -60,6 +65,8 @@ cargo run -p diskclean-cli -- applications /path/to/heroic/legendaryConfig/legen
 cargo run -p diskclean-cli -- applications /path/to/GOG-Games --provider gog --json
 cargo run -p diskclean-cli -- applications /path/to/heroic --provider heroic-gog --json
 cargo run -p diskclean-cli -- applications /path/to/lutris-data --provider lutris --json
+cargo run -p diskclean-cli -- applications /var/lib/dpkg --provider dpkg --json
+cargo run -p diskclean-cli -- applications /var/lib/pacman/local --provider pacman --json
 # Windows only; no path argument:
 cargo run -p diskclean-cli -- applications --provider registry --json
 ```

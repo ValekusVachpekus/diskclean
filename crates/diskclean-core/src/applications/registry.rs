@@ -62,6 +62,7 @@ fn map_inventory(
             install_path: install_path.unwrap_or_default(),
             manifest_path: PathBuf::new(),
             registry_key: Some(key),
+            reported_size_bytes: None,
             allocated_bytes: None,
             logical_bytes: None,
             size_complete: false,

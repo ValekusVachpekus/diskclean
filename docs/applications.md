@@ -2,7 +2,7 @@
 
 Phase 4 is in progress. Steam, Epic Games Launcher, Legendary and Heroic Epic
 inventory are implemented, plus Heroic GOG, explicit GOG `.info` sources and
-Linux Lutris and Windows Uninstall records.
+Linux Lutris, Windows Uninstall records and dpkg/pacman packages.
 Discovery is read-only and works offline; it never uninstalls games or creates cleanup selections.
 
 ## Usage
@@ -303,6 +303,73 @@ Format/access references: Microsoft documents
 [Uninstall values](https://learn.microsoft.com/en-us/windows/win32/msi/uninstall-registry-key)
 and [alternate registry views](https://learn.microsoft.com/en-us/windows/win32/winprog64/accessing-an-alternate-registry-view).
 
+## Linux packages: dpkg and pacman
+
+Automatic Linux discovery reads `/var/lib/dpkg/status` and the local pacman
+`/var/lib/pacman/local/*/desc` database when present. Explicit sources are the
+database directories, never `/usr`, a package archive or the pacman sync DB.
+Explicit metadata folders are readable on both supported platforms; automatic
+system locations are Linux-only. Custom dpkg admindir / pacman DBPath must be
+entered explicitly; package-manager configs and environment overrides are not
+interpreted.
+
+```bash
+cargo run -p diskclean-cli -- applications /var/lib/dpkg --provider dpkg --json
+cargo run -p diskclean-cli -- applications /var/lib/pacman/local --provider pacman --json
+```
+
+dpkg includes only records whose status reports `ok installed`, including held
+packages; residual `config-files`, unpacked and reinstreq/broken states are
+excluded. Pacman records come from the local installed database, with NAME,
+VERSION and ARCH; known repository-only desc fields are rejected. IDs include
+architecture, so dpkg multiarch records remain distinct. Duplicate package IDs
+produce issues and retain the first record; they are not silently added twice.
+Versions are metadata, not integrity verification. Valid neighbors survive
+malformed records or missing desc files; a corrupt dpkg stanza is skipped.
+
+Package files can span protected system directories and shared dependencies.
+These sources **do not scan `/usr` or invent a single installation folder**.
+`allocated_bytes`/`logical_bytes` stay null and `install_path` is empty.
+`manifest_path` identifies the status/desc metadata. The optional JSON
+`reported_size_bytes` stores the database estimate: dpkg `Installed-Size` in
+1024-byte units, pacman `SIZE` (or legacy `ISIZE`) in bytes. Missing size stays
+unknown; invalid/overflowing sizes produce an issue without discarding the
+package. Conflicting SIZE/ISIZE rejects a desc record.
+
+System packages have a dedicated initially collapsed group so dependencies do
+not crowd the games grid. Search expands matching packages. Cards use ≈ and a
+localized Package estimate label; details separately show unknown measured
+usage, declared size, version, package/architecture identity and source evidence.
+There is no Copy path/Analyze action for an absent installation folder. Estimates
+are neither reclaimable bytes nor additive physical usage: filesystem allocation,
+maintainer scripts, dependencies and separately created user data affect reality.
+Removal remains the responsibility of the package manager; inventory creates
+no cleanup candidate and executes no commands, scripts or network operations.
+
+Reads use no-follow regular-file handles and check source/opened identity,
+size and precise mtime around bounded cancellable reads. dpkg status is capped
+at 64 MiB / 20,000 stanzas; desc files at 1 MiB; lines at 64 KiB and fields at
+256. Core discovery also bounds total declared metadata input per provider call to 64 MiB,
+per-directory entries and accepted package count to 20,000, rejects linked
+ancestors/mount crossings and deduplicates root aliases. Excessive individual
+sources produce issues. Per-file checks do not make a multi-file/live package
+database transactional: a package-manager update can invalidate the observation;
+refresh after it completes. Dependency/ownership graphs and content verification
+are not inferred from these records.
+
+Fixtures cover installed/held/removed/broken dpkg states, multiarch, continuation
+fields, duplicates, malformed/overflow/missing sizes, both pacman size formats,
+contiguous sections, links, cancellation, source changes and limits.
+CLI tests prove estimates remain separate and source text is unchanged. GUI
+coverage checks EN/RU dark/light collapsed groups, search, source controls and
+no path/cleanup actions. A native pacman smoke read 1691 packages with zero
+issues (1682 sizes reported, zero measured). Flatpak/Snap and RPM remain open.
+
+Format references: Debian's
+[status fields](https://www.debian.org/doc/debian-policy/ap-pkg-controlfields.html)
+and [Installed-Size](https://www.debian.org/doc/debian-policy/ch-controlfields.html#installed-size),
+and Arch's [local desc format](https://man.archlinux.org/man/alpm-db-desc.5.en).
+
 ## Boundaries and tests
 
 Platform owns local metadata access and the text KeyValues parser. Core maps
@@ -333,7 +400,7 @@ The parser here is implemented locally without importing another parser.
 
 ## Remaining Phase 4 work
 
-Next: Linux packages. Galaxy-specific registry discovery, native Linux
+Next: Flatpak/Snap. Galaxy-specific registry discovery, native Linux
 `gameinfo`-only layouts and Heroic Amazon/third-party remain open; related
 folder ownership; P1 category totals; and P2 explained leftovers with explicit
 review through the audited trash pipeline. No missing-manifest heuristic marks

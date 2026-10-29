@@ -1344,6 +1344,7 @@ fn applications_ui_fixture() -> diskclean_core::applications::ApplicationsReport
             install_path: "/virtual/Steam/steamapps/common/Test Game".into(),
             manifest_path: "/virtual/Steam/steamapps/appmanifest_10.acf".into(),
             registry_key: None,
+            reported_size_bytes: None,
             allocated_bytes: Some(GIB),
             logical_bytes: Some(GIB),
             size_complete: true,
@@ -1777,6 +1778,86 @@ fn registry_missing_location_shows_evidence_without_path_actions_in_both_languag
                     .query_by_label(language.text(Key::RegistryRootHint))
                     .is_some()
             );
+        }
+    }
+}
+
+#[test]
+fn system_packages_are_collapsed_searchable_and_explain_estimated_sizes() {
+    use crate::i18n::Key;
+    use diskclean_core::applications::ApplicationSource;
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = theme;
+            app.workspace = Workspace::Applications;
+            let mut report = applications_ui_fixture();
+            report.applications.truncate(1);
+            let package = &mut report.applications[0];
+            package.name = "example-package".into();
+            package.id = "example-package:amd64".into();
+            package.launcher = "dpkg".into();
+            package.install_path.clear();
+            package.manifest_path = "/virtual/dpkg/status".into();
+            package.reported_size_bytes = Some(2048);
+            package.allocated_bytes = None;
+            package.logical_bytes = None;
+            app.applications.report = Some(report);
+            let mut harness = harness(app, Vec2::new(600.0, 600.0));
+            assert!(harness.query_by_label("example-package").is_none());
+            let title = format!(
+                "{}  {} · 1",
+                crate::ui::icons::CARET_RIGHT,
+                language.text(Key::ApplicationPackages)
+            );
+            harness.get_by_label(&title).click();
+            harness.run();
+            assert!(harness.state().applications.show_packages);
+            harness.get_by_label("example-package").click();
+            harness.run();
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::PackageOwnership))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::PackageReportedSize))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::PackageNoInstallPath))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::CopyPath))
+                    .is_none()
+            );
+            assert!(harness.state().cleanup.selected.is_empty());
+            harness.get_by_label(language.text(Key::Close)).click();
+            harness.run();
+            harness.state_mut().applications.show_packages = false;
+            harness.state_mut().applications.search = "example-package".into();
+            harness.run();
+            assert!(harness.query_by_label("example-package").is_some());
+            harness
+                .get_by_label(language.text(Key::SteamLibrarySettings))
+                .click();
+            harness.run();
+            for (label, source, key) in [
+                ("dpkg", ApplicationSource::Dpkg, Key::DpkgRootHint),
+                ("pacman", ApplicationSource::Pacman, Key::PacmanRootHint),
+            ] {
+                let button = harness.get_by_label(label);
+                assert!(button.rect().right() <= 600.0);
+                button.click();
+                harness.run();
+                assert_eq!(harness.state().applications.source, source);
+                assert!(harness.query_by_label(language.text(key)).is_some());
+            }
         }
     }
 }

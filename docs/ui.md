@@ -324,3 +324,13 @@ uninstall management. Registry key evidence has a truncated line/tooltip. A
 missing usable location has an explicit EN/RU explanation, unknown size and no
 Copy path/Analyze action. Four theme/language combinations at 600 px verify
 source selection, evidence, absent actions and no cleanup selection.
+
+Linux packages follow-up (2026-10-29): dpkg/pacman source buttons wrap in the
+existing picker. A separate System packages group starts collapsed and expands
+for matching searches; its state is independent of Steam components. Package
+cards are virtualized and sorted by declared size, show ≈ and a Package estimate
+footer. Details keep measured usage unknown, show the separate estimate,
+version, package/architecture identity and metadata path, with EN/RU explanations
+of distributed files/dependencies and package-manager uninstall. No Copy path,
+Analyze or cleanup selection. EN/RU dark/light 600 px regressions cover group
+interaction, search, details and source controls.

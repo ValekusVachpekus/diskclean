@@ -11,6 +11,7 @@ pub mod gog;
 pub mod legendary;
 pub mod lutris;
 pub mod mounts;
+pub mod packages;
 pub mod registry;
 pub mod steam;
 pub mod user_dirs;

@@ -423,6 +423,21 @@ never proposes deletion. All 174 Linux workspace tests (45 GUI), fmt, Linux/Wind
 fixture execution/manual smoke remain pending. Next:
 Linux packages, then P2. See docs/plan.md for verification and remaining scope.
 
+Linux package milestone (2026-10-29): dpkg and pacman inventories read local
+status/desc metadata without package-manager execution or /usr scanning.
+Native roots are Linux-only; explicit database fixtures are portable. Platform
+owns bounded, cancellable no-follow readers with identity/size/mtime validation;
+core maps installed rows and metadata issues. Application.reported_size_bytes
+holds declared package estimates separately from allocated/logical measurements;
+install_path stays empty for distributed packages. GUI groups packages in a
+collapsed searchable section, marks estimates and provides EN/RU explanations,
+source evidence, versions and architecture. No path/cleanup actions are offered.
+Standard roots only; Flatpak/Snap, RPM, custom DBPath and related-file ownership
+remain open. No dependencies or unsafe code added. Next: Flatpak/Snap, then P2.
+All 184 workspace tests (46 GUI), fmt, Linux/Windows all-targets clippy -D
+warnings and locked Linux workspace release build pass. Native pacman smoke:
+1691 packages, zero issues. Remaining acceptance is tracked in docs/plan.md.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -437,7 +452,7 @@ Linux packages, then P2. See docs/plan.md for verification and remaining scope.
    **Complete.**
 5. Apps/games: **In progress.** Steam, Epic, Legendary and Heroic Epic inventory
    GUI/CLI implemented, plus Heroic GOG and explicit GOG `.info` folders. Next:
-   Linux packages and leftovers (Lutris and Windows Uninstall implemented).
+   Flatpak/Snap and leftovers (Lutris, Windows Uninstall, dpkg/pacman implemented).
    GOG Galaxy registry, Linux `gameinfo`-only layouts and Heroic
    Amazon/third-party remain open.
 6. Similar photos via `czkawka_core`.
