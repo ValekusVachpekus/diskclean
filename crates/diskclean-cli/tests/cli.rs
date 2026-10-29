@@ -511,3 +511,131 @@ fn package_inventories_keep_estimates_separate_from_measurements() {
         desc
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn flatpak_inventory_lists_active_deployments_and_separate_runtimes() {
+    let temp = tempfile::tempdir().expect("temp");
+    let hash = "a".repeat(64);
+    for (kind, name, section) in [
+        ("app", "org.example.App", "Application"),
+        ("runtime", "org.example.Platform", "Runtime"),
+    ] {
+        let branch = temp.path().join(kind).join(name).join("x86_64/stable");
+        let deploy = branch.join(&hash);
+        fs::create_dir_all(deploy.join("files")).expect("dirs");
+        fs::write(
+            deploy.join("metadata"),
+            format!("[{section}]\nname={name}\n"),
+        )
+        .expect("metadata");
+        fs::write(deploy.join("files/data"), b"payload").expect("payload");
+        std::os::unix::fs::symlink(&hash, branch.join("active")).expect("active");
+    }
+    let output = Command::cargo_bin("diskclean")
+        .expect("binary")
+        .arg("applications")
+        .arg(temp.path())
+        .args(["--provider", "flatpak", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: serde_json::Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(report["applications"].as_array().expect("apps").len(), 2);
+    assert_eq!(report["issues"], serde_json::json!([]));
+    for (i, launcher) in ["Flatpak", "Flatpak runtime"].iter().enumerate() {
+        let app = &report["applications"][i];
+        assert_eq!(app["launcher"], *launcher);
+        assert_eq!(app["status"], "installed");
+        assert!(app["allocated_bytes"].is_number());
+        assert!(app["reported_size_bytes"].is_null());
+        assert_eq!(app["build_id"], hash);
+        let path = std::path::PathBuf::from(app["manifest_path"].as_str().expect("path"));
+        assert!(path.ends_with("metadata"));
+        assert_eq!(
+            fs::read_to_string(path).expect("unchanged").lines().count(),
+            2
+        );
+    }
+}
+
+#[test]
+fn snap_inventory_reports_archive_sizes_revisions_and_unknown_state_without_mutation() {
+    let temp = tempdir().expect("temp");
+    fs::create_dir(temp.path().join("snaps")).expect("dir");
+    let mut header = [0; 96];
+    header[..4].copy_from_slice(b"hsqs");
+    header[12..16].copy_from_slice(&131072u32.to_le_bytes());
+    header[28] = 4;
+    header[40..48].copy_from_slice(&96u64.to_le_bytes());
+    for name in ["example_1.snap", "core22_2.snap"] {
+        fs::write(temp.path().join("snaps").join(name), header).expect("archive");
+    }
+    let state = r#"{"data":{"snaps":{"example":{"type":"app","active":true,"current":"1","sequence":[{"name":"example","revision":"1"}]},"core22":{"type":"base","current":"2","sequence":[{"name":"core22","revision":"2"}]}}}}"#;
+    fs::write(temp.path().join("state.json"), state).expect("state");
+    let output = diskclean()
+        .arg("applications")
+        .arg(temp.path())
+        .args(["--provider", "snap", "--json"])
+        .output()
+        .expect("run");
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(report["applications"].as_array().expect("apps").len(), 2);
+    assert_eq!(report["issues"], serde_json::json!([]));
+    for app in report["applications"].as_array().expect("apps") {
+        assert_eq!(app["status"], "installed");
+        assert_eq!(app["logical_bytes"], 96);
+        assert!(app["allocated_bytes"].is_number());
+        assert!(app["reported_size_bytes"].is_null());
+        assert_eq!(app["install_path"], "");
+        assert!(
+            app["archive_path"]
+                .as_str()
+                .expect("path")
+                .ends_with(".snap")
+        );
+        assert!(matches!(
+            app["snap_state"].as_str(),
+            Some("current_enabled" | "current_disabled")
+        ));
+    }
+    diskclean()
+        .arg("applications")
+        .arg(temp.path())
+        .args(["--provider", "snap"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Snap archive").and(predicate::str::contains("revision 1")),
+        );
+    assert_eq!(
+        fs::read_to_string(temp.path().join("state.json")).expect("unchanged"),
+        state
+    );
+    assert_eq!(
+        fs::read(temp.path().join("snaps/example_1.snap")).expect("archive"),
+        header
+    );
+    fs::write(temp.path().join("state.json"), "broken").expect("bad state");
+    let output = diskclean()
+        .arg("applications")
+        .arg(temp.path())
+        .args(["--provider", "snap", "--json"])
+        .output()
+        .expect("run");
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert!(!report["issues"].as_array().expect("issues").is_empty());
+    assert!(
+        report["applications"]
+            .as_array()
+            .expect("apps")
+            .iter()
+            .all(|a| a["status"] == "unknown"
+                && a["snap_state"] == "unknown"
+                && a["logical_bytes"] == 96)
+    );
+}

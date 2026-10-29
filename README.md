@@ -21,7 +21,9 @@ explanation and a risk level.
 - [x] Steam/Epic/Legendary, Heroic Epic/GOG, explicit GOG, Linux Lutris and Windows Uninstall
       inventory with measured sizes (GUI + CLI)
 - [x] Linux dpkg/pacman package inventory with clearly labeled size estimates
-- [ ] Other launchers, Flatpak/Snap and explained application leftovers
+- [x] Flatpak applications and shared runtimes with measured deployment sizes
+- [x] Snap revision inventory with compressed archive sizes and separate system components
+- [ ] Other launchers and explained application leftovers
 - [ ] Similar photos/videos
 - [ ] Packaging
 
@@ -47,7 +49,14 @@ an unknown size. Windows Settings or the original installer handles uninstalling
 Linux automatic discovery also reads dpkg/pacman local databases. System packages
 have their own collapsed searchable group, versions and architecture. Their sizes
 are package-manager estimates, separate from measured usage; distributed package
-files have no single folder to open in Analyze. Flatpak/Snap remain planned.
+files have no single folder to open in Analyze. Flatpak discovers active system/user
+deployments and lists shared runtimes/extensions in their own collapsed group.
+Deployment sizes exclude the repository and separate user data; hardlink sharing
+means these sizes cannot be summed or treated as reclaimable space.
+Snap reads local revision state and measures compressed archives, excluding /snap
+mount contents, user data and snapshots. Missing/unreadable state keeps archive
+records uncertain. Retained revisions are not cleanup recommendations; archive
+details offer Copy path and no directory-analysis action.
 Search measures launcher installation sizes in the
 background, supports cancellation and opens individual games in Analyze.
 Results appear as responsive cards, with games first and Steam components
@@ -67,6 +76,8 @@ cargo run -p diskclean-cli -- applications /path/to/heroic --provider heroic-gog
 cargo run -p diskclean-cli -- applications /path/to/lutris-data --provider lutris --json
 cargo run -p diskclean-cli -- applications /var/lib/dpkg --provider dpkg --json
 cargo run -p diskclean-cli -- applications /var/lib/pacman/local --provider pacman --json
+cargo run -p diskclean-cli -- applications /var/lib/flatpak --provider flatpak --json
+cargo run -p diskclean-cli -- applications /var/lib/snapd --provider snap --json
 # Windows only; no path argument:
 cargo run -p diskclean-cli -- applications --provider registry --json
 ```

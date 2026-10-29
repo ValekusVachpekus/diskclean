@@ -2,7 +2,7 @@
 
 Phase 4 is in progress. Steam, Epic Games Launcher, Legendary and Heroic Epic
 inventory are implemented, plus Heroic GOG, explicit GOG `.info` sources and
-Linux Lutris, Windows Uninstall records and dpkg/pacman packages.
+Linux Lutris, Windows Uninstall records, dpkg/pacman packages, Flatpak deployments and Snap archives.
 Discovery is read-only and works offline; it never uninstalls games or creates cleanup selections.
 
 ## Usage
@@ -23,8 +23,8 @@ it. Results use a responsive card grid with size and installation status.
 Games/apps appear first, sorted by measured size. Recognizable local names for
 Proton, Steam Linux Runtime and shared redistributables form a collapsed
 **Steam components** group. This grouping is a display hint, not proof of
-ownership or a cleanup recommendation. Name/path search includes both groups
-and opens matching components automatically.
+ownership or a cleanup recommendation. Name/path/ID/provider search includes all groups
+and opens matching collapsed groups automatically.
 
 Click a card to open its details, copy its path or scan it in Analyze. Details
 open in a scrollable modal so selecting a game does not move the grid; Close or
@@ -363,12 +363,150 @@ contiguous sections, links, cancellation, source changes and limits.
 CLI tests prove estimates remain separate and source text is unchanged. GUI
 coverage checks EN/RU dark/light collapsed groups, search, source controls and
 no path/cleanup actions. A native pacman smoke read 1691 packages with zero
-issues (1682 sizes reported, zero measured). Flatpak/Snap and RPM remain open.
+issues (1682 sizes reported, zero measured). RPM remains outside this milestone.
 
 Format references: Debian's
 [status fields](https://www.debian.org/doc/debian-policy/ap-pkg-controlfields.html)
 and [Installed-Size](https://www.debian.org/doc/debian-policy/ch-controlfields.html#installed-size),
 and Arch's [local desc format](https://man.archlinux.org/man/alpm-db-desc.5.en).
+
+## Flatpak deployments
+
+```bash
+cargo run -p diskclean-cli -- applications /var/lib/flatpak --provider flatpak --json
+cargo run -p diskclean-cli -- applications ~/.local/share/flatpak --provider flatpak --json
+```
+
+Automatic discovery on Linux probes `/var/lib/flatpak` and
+`$XDG_DATA_HOME/flatpak` (default `~/.local/share/flatpak`), honoring absolute
+`FLATPAK_SYSTEM_DIR` and `FLATPAK_USER_DIR` overrides. Nonstandard installation
+roots can be passed explicitly. `/etc/flatpak/installations.d` is not parsed in
+this milestone. Other operating systems do not probe Linux directories.
+
+Discovery visits only `app/ID/ARCH/BRANCH` and `runtime/ID/ARCH/BRANCH`. The
+`active` symlink is read as text, never traversed. Only a single bounded checksum
+filename with an optional subpath suffix (for example `CHECKSUM-ru`) is accepted;
+the named real directory and metadata must pass the normal no-link/mount checks.
+`current` branch aliases are ignored. A `[Application]` or `[Runtime]` name must
+match its ID directory. Names currently display the stable Flatpak ID rather
+than AppStream titles. Each active branch is a separate record, identified by
+kind/ID/architecture/branch; the build field retains the deployment checksum
+and suffix. Only existing, validated active deployments are installed evidence.
+Dangling, linked, mismatched or unreadable records produce issues without hiding
+valid neighbours. Inactive commit directories, `.removed`, repo and exports are
+not inventoried; no absence/leftover inference is made.
+
+The existing scanner measures each deployment directory and retains allocated
+and logical bytes, internal hardlink deduplication and partial-size flags. Runtimes
+and extensions are separate records (`Flatpak runtime`) in their own collapsed
+GUI group. Search expands matching groups and includes references/architectures/
+branches. Details show source metadata, deployment path and the limits of sizing;
+Copy path and Analyze act on the validated real directory. The measured scope
+includes local deployment metadata/exports, excludes separate profile data and
+the repository, and never adds a runtime to every app. Hardlinks may share storage
+with other deployments and the repository, so **sizes are not additive or
+reclaimable bytes**. No unused-runtime/dependency or exclusive ownership claim
+is made. Removal belongs to Flatpak; discovery creates no cleanup selections,
+executes no commands and accesses no network.
+
+Metadata uses the bounded no-follow UTF-8 reader with opened/path identity, size
+and precise mtime checks. Input is limited to 1 MiB per metadata file, 64 KiB per
+line and 64 MiB total declared metadata input per discovery call. At most 20,000
+directory entries are visited across roots; traversal depth is fixed by the
+layout. Root aliases are deduplicated and cancellation propagates through
+traversal, parsing and scans. The active marker is checked again after measuring;
+changes downgrade the record to uncertain and partial. This is a read-only live
+observation, not an atomic Flatpak transaction; refresh after updates finish.
+
+Tests cover active app/runtime/locale deployments, multiple branches, ignored
+inactive commits/current aliases, hardlinks and measured sizes, linked metadata/
+ancestors, escaped/dangling markers, identity/kind mismatches, bounds and
+cancellation. CLI checks JSON and unchanged source metadata; EN/RU dark/light GUI
+coverage checks independent collapsed groups, branch search, size/evidence labels
+and wrapping source controls. Native system smoke: 1 app + 5 runtimes/extensions,
+all six measured, zero issues. Real-display visual acceptance remains open.
+
+Format references: Flatpak's [installation locations and environment overrides](https://docs.flatpak.org/en/latest/flatpak-command-reference.html),
+[metadata format](https://github.com/flatpak/flatpak/blob/main/doc/flatpak-metadata.xml),
+[active deployment markers](https://github.com/flatpak/flatpak/blob/main/common/flatpak-dir.c),
+and [OSTree hardlink accounting](https://docs.flatpak.org/en/latest/under-the-hood.html).
+
+## Snap revisions and compressed archives
+
+```bash
+cargo run -p diskclean-cli -- applications /var/lib/snapd --provider snap --json
+```
+
+Automatic Linux discovery probes `/var/lib/snapd`; explicit roots contain
+`state.json` and `snaps/`. No Linux locations are probed on other platforms.
+The reader deserializes only `data.snaps`, ignoring authentication, tasks and
+unrelated state. A record's sequence/current/active flags identify current
+enabled, current disabled and retained (non-current) revisions. These are local
+metadata observations, not a live daemon query. Local xN revisions, legacy
+numeric revisions and parallel instance keys are supported; names, instance
+keys and revisions must be valid single components and match side-info names.
+Missing/invalid current evidence, duplicate revisions or malformed entries do
+not produce installed-state claims. Invalid records become issues while valid
+neighbours remain usable. Duplicate JSON keys reject the state input.
+
+The provider also enumerates `snaps/INSTANCE_REVISION.snap`. When state is
+missing, malformed or unreadable, archives still appear with **unknown**
+installation/revision state and an issue explaining the unavailable evidence.
+It never requests elevation, calls snapd or infers activation from filenames.
+Type metadata `base`, `os`, `snapd`, `kernel` and `gadget` puts records in the
+collapsed shared-components group (`Snap runtime` in JSON). Application-type
+content providers cannot be distinguished from ordinary apps in this milestone;
+there is no dependency graph or unused-component claim. Each revision is its
+own record; a retained revision is not a cleanup candidate.
+
+`allocated_bytes` and `logical_bytes` measure the compressed archive file,
+including file padding, through the platform allocation metadata. Only its
+96-byte SquashFS v4 header is read, checking magic/version, block size and
+bytes-used bounds. This is **not full integrity or signature verification**.
+There is no decompression, hashing or mounted `/snap` tree scan, which would
+report the expanded filesystem and duplicate the archive's content. Writable
+`/var/snap`, profile data, caches, snapshots, separate .comp containers and
+other dependencies are excluded. Hardlinks may share storage with a cache or
+other revisions; no aggregate or reclaimable-space total is claimed.
+
+The shared model keeps `archive_path` and `snap_state` separately; build_id is
+the revision and id is INSTANCE/REVISION. `manifest_path` points to state.json
+when a valid state record exists, otherwise to the observed archive. The
+installation-directory path remains empty. EN/RU cards and details label the
+compressed archive size and revision state; details offer Copy path for the
+archive but never Analyze on an empty directory path. Missing archives have a
+specific label and unknown size; malformed/linked archives retain uncertain
+status and issues, without a measured size. No uninstall or cleanup selection
+is introduced; removal belongs to Snap.
+
+No-follow readers validate opened/path identity, size and precise mtime around
+reads; linked ancestors, reparse points and mount crossings are rejected by
+default. State input is capped at 16 MiB/file and 64 MiB declared input per
+provider call; objects/sequences, directory entries and output records are
+bounded at 20,000. State/metadata and archive traversal are cancellable; header
+reads are bounded to 96 bytes. Root aliases are deduplicated. State identity,
+size and timestamp are checked again after inventory; changes downgrade state,
+installation and component classification claims. Archive sizes remain scoped
+to their own stable file observations. This is not an atomic snapd transaction;
+refresh after updates finish. Permission failures preserve archive fallback and
+never change access rights.
+
+Fixtures cover current/disabled/retained/local/parallel-instance metadata,
+invalid neighbours/duplicates/limits/cancellation, missing state and archives,
+linked sources, sparse/allocated metadata, malformed/truncated headers and
+unchanged source data. CLI JSON/plain-text and EN/RU dark/light GUI tests cover
+revision evidence, separate groups, long labels, search, source controls and
+absence of archive-to-directory Analyze actions. Native snapd smoke remains
+pending because no snapd data root is installed on this development machine.
+Alternative layouts and .comp/content-provider support remain open.
+
+Format references: Snap's [storage layout and compressed archive sizing](https://snapcraft.io/docs/explanation/how-snaps-work/system-snap-directory/),
+[snapd state schema](https://github.com/canonical/snapd/blob/master/overlord/snapstate/snapmgr.go),
+[sequence side-info](https://github.com/canonical/snapd/blob/master/overlord/snapstate/sequence/sequence.go),
+[revision representation](https://github.com/canonical/snapd/blob/master/snap/revision.go),
+[instance naming](https://github.com/canonical/snapd/blob/master/snap/naming/validate.go),
+and the [SquashFS on-disk header](https://github.com/torvalds/linux/blob/master/fs/squashfs/squashfs_fs.h).
+The readers are implemented locally; no upstream implementation code is copied.
 
 ## Boundaries and tests
 
@@ -400,7 +538,7 @@ The parser here is implemented locally without importing another parser.
 
 ## Remaining Phase 4 work
 
-Next: Flatpak/Snap. Galaxy-specific registry discovery, native Linux
+Next: P2 related-folder ownership and explained leftovers. Galaxy-specific registry discovery, native Linux
 `gameinfo`-only layouts and Heroic Amazon/third-party remain open; related
 folder ownership; P1 category totals; and P2 explained leftovers with explicit
 review through the audited trash pipeline. No missing-manifest heuristic marks

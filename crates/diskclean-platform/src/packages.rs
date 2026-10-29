@@ -63,7 +63,7 @@ fn cancelled(check: &impl Fn() -> bool) -> io::Result<()> {
 }
 /// No-follow reads validate opened identity, size and precise mtime before/after.
 /// The caller controls mount policy. Not a transaction across a package database.
-fn read_text(path: &Path, limit: u64, check: &impl Fn() -> bool) -> io::Result<String> {
+pub(crate) fn read_text(path: &Path, limit: u64, check: &impl Fn() -> bool) -> io::Result<String> {
     cancelled(check)?;
     let before = crate::metadata(path)?;
     if before.kind != crate::FileKind::File || before.logical_size > limit {

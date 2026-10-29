@@ -4,7 +4,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
 use diskclean_core::applications::{
-    Application, ApplicationSource, ApplicationsReport, InstallationStatus, discover_applications,
+    Application, ApplicationSource, ApplicationsReport, InstallationStatus, SnapRevisionState,
+    discover_applications,
 };
 use diskclean_core::{ScanControl, ScanError, ScanOptions};
 use eframe::egui::{self, Align2, FontId, RichText, Stroke, vec2};
@@ -35,8 +36,9 @@ pub(crate) struct ApplicationsWorkspace {
     pub(crate) search: String,
     pub(crate) show_components: bool,
     pub(crate) show_packages: bool,
+    pub(crate) show_runtimes: bool,
     view_key: Option<(usize, usize, String)>,
-    groups: [Vec<usize>; 3],
+    groups: [Vec<usize>; 4],
 }
 
 impl DiskCleanupApp {
@@ -167,6 +169,8 @@ impl DiskCleanupApp {
                             (ApplicationSource::Lutris, "Lutris"),
                             (ApplicationSource::Dpkg, "dpkg"),
                             (ApplicationSource::Pacman, "pacman"),
+                            (ApplicationSource::Flatpak, "Flatpak"),
+                            (ApplicationSource::Snap, "Snap"),
                             (
                                 ApplicationSource::Registry,
                                 language.text(Key::RegistrySource),
@@ -181,6 +185,8 @@ impl DiskCleanupApp {
                     ApplicationSource::Lutris => Key::LutrisRootHint,
                     ApplicationSource::Dpkg => Key::DpkgRootHint,
                     ApplicationSource::Pacman => Key::PacmanRootHint,
+                    ApplicationSource::Flatpak => Key::FlatpakRootHint,
+                    ApplicationSource::Snap => Key::SnapRootHint,
                     ApplicationSource::Registry => Key::RegistryRootHint,
                     ApplicationSource::Gog => Key::GogRootHint,
                     ApplicationSource::HeroicGog => Key::HeroicGogRootHint,
@@ -279,12 +285,14 @@ impl DiskCleanupApp {
                         || match group {
                             0 => true,
                             1 => self.applications.show_components,
-                            _ => self.applications.show_packages,
+                            2 => self.applications.show_packages,
+                            _ => self.applications.show_runtimes,
                         };
                     let key = match group {
                         0 => Key::ApplicationGames,
                         1 => Key::ApplicationComponents,
-                        _ => Key::ApplicationPackages,
+                        2 => Key::ApplicationPackages,
+                        _ => Key::ApplicationRuntimes,
                     };
                     if offset + GROUP_HEIGHT >= viewport.top() && offset <= viewport.bottom() {
                         ui.scope_builder(
@@ -306,19 +314,22 @@ impl DiskCleanupApp {
                                 if group == 0 {
                                     ui.label(RichText::new(title).strong().color(palette.text));
                                 } else if components::secondary_button(ui, palette, &title)
-                                    .on_hover_text(language.text(if group == 1 {
-                                        Key::ApplicationComponentsHint
-                                    } else {
-                                        Key::ApplicationPackagesHint
+                                    .on_hover_text(language.text(match group {
+                                        1 => Key::ApplicationComponentsHint,
+                                        2 => Key::ApplicationPackagesHint,
+                                        _ => Key::ApplicationRuntimesHint,
                                     }))
                                     .clicked()
                                 {
                                     if group == 1 {
                                         self.applications.show_components =
                                             !self.applications.show_components;
-                                    } else {
+                                    } else if group == 2 {
                                         self.applications.show_packages =
                                             !self.applications.show_packages;
+                                    } else {
+                                        self.applications.show_runtimes =
+                                            !self.applications.show_runtimes;
                                     }
                                 }
                             },
@@ -410,6 +421,12 @@ impl ApplicationsWorkspace {
         for (index, app) in report.applications.iter().enumerate() {
             if !search.is_empty()
                 && !app.name.to_lowercase().contains(&search)
+                && !app.id.to_lowercase().contains(&search)
+                && !app.launcher.to_lowercase().contains(&search)
+                && !app
+                    .archive_path
+                    .as_ref()
+                    .is_some_and(|p| p.to_string_lossy().to_lowercase().contains(&search))
                 && !app
                     .install_path
                     .to_string_lossy()
@@ -418,7 +435,9 @@ impl ApplicationsWorkspace {
             {
                 continue;
             }
-            self.groups[if system_package(app) {
+            self.groups[if matches!(app.launcher.as_str(), "Flatpak runtime" | "Snap runtime") {
+                3
+            } else if system_package(app) {
                 2
             } else {
                 usize::from(steam_component(app))
@@ -521,7 +540,7 @@ fn application_card(
     } else {
         palette.warning
     };
-    let status = language.text(status_key(app.status));
+    let status = language.text(application_status_key(app));
     painter.circle_filled(egui::pos2(left + 3.0, rect.top() + 103.0), 3.0, color);
     let mut status_job = egui::text::LayoutJob::simple_singleline(
         format!("{} · {status}", launcher_label(app, language)),
@@ -540,27 +559,78 @@ fn application_card(
         Key::PackageReportedSize
     } else if app.allocated_bytes.is_some() && !app.size_complete {
         Key::ApplicationPartialSize
+    } else if flatpak_app(app) {
+        Key::FlatpakDeploymentSize
     } else {
         Key::ApplicationOpenDetails
     };
-    painter.text(
-        egui::pos2(left, rect.top() + 120.0),
-        Align2::LEFT_TOP,
-        language.text(footer),
+    let mut footer_job = egui::text::LayoutJob::simple_singleline(
+        if snap_app(app) {
+            snap_revision_label(app, language)
+        } else {
+            language.text(footer).to_owned()
+        },
         FontId::proportional(10.5),
         palette.muted,
     );
+    footer_job.wrap.max_width = rect.width() - 28.0;
+    footer_job.wrap.max_rows = 1;
+    let footer_galley = ui.fonts_mut(|fonts| fonts.layout_job(footer_job));
+    painter.galley(
+        egui::pos2(left, rect.top() + 120.0),
+        footer_galley,
+        palette.muted,
+    );
     response.on_hover_text(format!(
-        "{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}",
         app.name,
         status,
-        app.install_path.to_string_lossy(),
+        app.archive_path
+            .as_deref()
+            .unwrap_or(&app.install_path)
+            .to_string_lossy(),
+        if snap_app(app) {
+            snap_revision_label(app, language)
+        } else {
+            String::new()
+        },
         if app.allocated_bytes.is_some() && !app.size_complete {
             language.text(Key::ApplicationPartialSizeHelp)
         } else {
             ""
         }
     ))
+}
+
+fn snap_app(app: &Application) -> bool {
+    matches!(app.launcher.as_str(), "Snap" | "Snap runtime")
+}
+fn application_status_key(app: &Application) -> Key {
+    if snap_app(app) && app.status == InstallationStatus::Missing {
+        Key::SnapArchiveMissing
+    } else {
+        status_key(app.status)
+    }
+}
+fn snap_state_key(app: &Application) -> Key {
+    match app.snap_state.unwrap_or(SnapRevisionState::Unknown) {
+        SnapRevisionState::CurrentEnabled => Key::SnapCurrentEnabled,
+        SnapRevisionState::CurrentDisabled => Key::SnapCurrentDisabled,
+        SnapRevisionState::Retained => Key::SnapRetained,
+        SnapRevisionState::Unknown => Key::SnapStateUnknown,
+    }
+}
+fn snap_revision_label(app: &Application, language: crate::i18n::Language) -> String {
+    format!(
+        "{} {} · {}",
+        language.text(Key::SnapRevision),
+        app.build_id.as_deref().unwrap_or("?"),
+        language.text(snap_state_key(app))
+    )
+}
+
+fn flatpak_app(app: &Application) -> bool {
+    matches!(app.launcher.as_str(), "Flatpak" | "Flatpak runtime")
 }
 
 fn system_package(app: &Application) -> bool {
@@ -570,6 +640,10 @@ fn system_package(app: &Application) -> bool {
 fn launcher_label(app: &Application, language: crate::i18n::Language) -> &str {
     if app.launcher == "Windows Registry" {
         language.text(Key::RegistrySource)
+    } else if app.launcher == "Snap runtime" {
+        language.text(Key::SnapRuntime)
+    } else if app.launcher == "Flatpak runtime" {
+        language.text(Key::FlatpakRuntime)
     } else {
         &app.launcher
     }
@@ -611,7 +685,7 @@ impl DiskCleanupApp {
                             RichText::new(format!(
                                 "{} · {}",
                                 launcher_label(app, language),
-                                language.text(status_key(app.status))
+                                language.text(application_status_key(app))
                             ))
                             .color(palette.muted),
                         );
@@ -619,7 +693,18 @@ impl DiskCleanupApp {
                             .allocated_bytes
                             .map(|bytes| format::size(language, bytes))
                             .unwrap_or_else(|| language.text(Key::Unknown).into());
-                        components::stat_row(ui, palette, language.text(Key::Size), &bytes);
+                        components::stat_row(
+                            ui,
+                            palette,
+                            language.text(if flatpak_app(app) {
+                                Key::FlatpakDeploymentSize
+                            } else if snap_app(app) {
+                                Key::SnapArchiveSize
+                            } else {
+                                Key::Size
+                            }),
+                            &bytes,
+                        );
                         if system_package(app) {
                             let estimate = app
                                 .reported_size_bytes
@@ -641,7 +726,7 @@ impl DiskCleanupApp {
                             ui.label(language.text(Key::ApplicationPartialSizeHelp));
                         }
                         ui.add_space(8.0);
-                        if app.install_path.as_os_str().is_empty() {
+                        if app.install_path.as_os_str().is_empty() && !snap_app(app) {
                             ui.label(language.text(if system_package(app) {
                                 Key::PackageNoInstallPath
                             } else {
@@ -653,6 +738,8 @@ impl DiskCleanupApp {
                             .on_hover_text(path.as_ref());
                         ui.label(language.text(match app.launcher.as_str() {
                             "Lutris" => Key::LutrisOwnership,
+                            "Snap" | "Snap runtime" => Key::SnapOwnership,
+                            "Flatpak" | "Flatpak runtime" => Key::FlatpakOwnership,
                             "dpkg" | "pacman" => Key::PackageOwnership,
                             "Windows Registry" => Key::RegistryOwnership,
                             "GOG" => Key::GogOwnership,
@@ -661,20 +748,34 @@ impl DiskCleanupApp {
                             "Legendary" | "Heroic (Epic)" => Key::LegendaryOwnership,
                             _ => Key::EpicOwnership,
                         }));
-                        if !system_package(app) {
+                        if !system_package(app) && !flatpak_app(app) && !snap_app(app) {
                             ui.label(language.text(Key::ApplicationDataScope));
                         }
-                        if system_package(app) {
+                        if system_package(app) || flatpak_app(app) || snap_app(app) {
                             let evidence = app.manifest_path.to_string_lossy();
                             ui.label(language.text(Key::ApplicationEvidence));
                             ui.add(egui::Label::new(evidence.as_ref()).truncate())
                                 .on_hover_text(evidence.as_ref());
                         }
+                        if snap_app(app) {
+                            ui.label(snap_revision_label(app, language));
+                            if let Some(archive) = &app.archive_path {
+                                ui.label(language.text(Key::SnapArchivePath));
+                                let path = archive.to_string_lossy();
+                                ui.add(egui::Label::new(path.as_ref()).truncate())
+                                    .on_hover_text(path.as_ref());
+                            }
+                        }
                         if let Some(key) = &app.registry_key {
                             ui.label(language.text(Key::ApplicationEvidence));
                             ui.add(egui::Label::new(key).truncate()).on_hover_text(key);
                         }
-                        if let Some(build) = &app.build_id {
+                        if flatpak_app(app) {
+                            ui.label(format!("{}: {}", language.text(Key::FlatpakRef), app.id));
+                        }
+                        if let Some(build) = &app.build_id
+                            && !snap_app(app)
+                        {
                             ui.add(
                                 egui::Label::new(format!(
                                     "{}: {build}",
@@ -699,17 +800,18 @@ impl DiskCleanupApp {
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
                     if app.allocated_bytes.is_some()
+                        && !app.install_path.as_os_str().is_empty()
                         && components::primary_button(ui, palette, language.text(Key::Analyze))
                             .clicked()
                     {
                         analyze = Some(app.install_path.clone());
                     }
-                    if !app.install_path.as_os_str().is_empty()
+                    let copy_path = app.archive_path.as_deref().unwrap_or(&app.install_path);
+                    if !copy_path.as_os_str().is_empty()
                         && components::secondary_button(ui, palette, language.text(Key::CopyPath))
                             .clicked()
                     {
-                        ui.ctx()
-                            .copy_text(app.install_path.to_string_lossy().into_owned());
+                        ui.ctx().copy_text(copy_path.to_string_lossy().into_owned());
                     }
                     if components::secondary_button(ui, palette, language.text(Key::Close))
                         .clicked()

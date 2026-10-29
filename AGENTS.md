@@ -438,6 +438,45 @@ All 184 workspace tests (46 GUI), fmt, Linux/Windows all-targets clippy -D
 warnings and locked Linux workspace release build pass. Native pacman smoke:
 1691 packages, zero issues. Remaining acceptance is tracked in docs/plan.md.
 
+Flatpak milestone (2026-10-29): offline native system/user discovery and
+explicit installation roots are available in GUI/CLI (`--provider flatpak`).
+Platform reads bounded identity metadata and active-link text; core validates
+real deployment paths and measures them through the shared no-follow scanner.
+Active locale/subpath checkouts and multiple branches are supported; old inactive
+commits, repo/exports and .removed are excluded. Shared runtimes/extensions have
+an independent collapsed GUI group. EN/RU details explain hardlink sharing and
+that deployment sizes are not additive or reclaimable; separate user data and
+the repository are excluded. Inventory never creates cleanup selections or runs
+Flatpak commands. Global traversal/metadata limits, cancellation, root dedup and
+an active-marker recheck bound observations; linked targets and mount crossings
+are rejected by default. No new dependencies or unsafe code. Verification:
+193 workspace tests (47 GUI), fmt, Linux/Windows all-targets clippy -D warnings
+and locked Linux workspace release build pass. Native system installation:
+1 app and 5 runtimes/extensions, all six measured, zero issues. Snap is next,
+then P2; custom installations.d parsing, AppStream names and runtime dependency
+graphs remain open. Interactive visual/Windows acceptance remains a release gate.
+
+Snap milestone (2026-10-29): offline GUI/CLI discovery reads native
+`/var/lib/snapd` or an explicit snapd data root (`--provider snap`). Bounded
+state metadata identifies current enabled/disabled and retained revisions;
+archive-only fallback remains uncertain when state is unavailable. Only the
+snaps section is deserialized; authentication/task data is never reported.
+Compressed archives are measured through no-follow regular-file handles and a
+96-byte SquashFS v4 header check, without scanning mounted /snap content.
+Application.archive_path is file evidence, snap_state is revision evidence,
+and install_path stays empty: GUI allows Copy path but never Analyze on an
+archive. Typed base/os/snapd/kernel/gadget records share the independent collapsed
+components group; EN/RU details explain data exclusions, shared hardlinks and
+that retained revisions are not cleanup suggestions. Links/mounts, invalid names,
+duplicate keys, changed sources and excessive inputs are rejected; state is
+rechecked after measurement. No commands, daemon/network calls, elevation,
+cleanup candidates, new dependencies or unsafe code. All 203 workspace tests
+(48 GUI), fmt, Linux/Windows all-targets clippy -D warnings and locked Linux
+workspace release build pass. Native Snap smoke is pending because snapd is
+absent locally; .comp containers/content-provider graphs and alternative layouts
+remain open. Next: P2 ownership/leftovers; GOG extensions and manual release gates
+remain tracked separately.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -452,7 +491,7 @@ warnings and locked Linux workspace release build pass. Native pacman smoke:
    **Complete.**
 5. Apps/games: **In progress.** Steam, Epic, Legendary and Heroic Epic inventory
    GUI/CLI implemented, plus Heroic GOG and explicit GOG `.info` folders. Next:
-   Flatpak/Snap and leftovers (Lutris, Windows Uninstall, dpkg/pacman implemented).
+   ownership/leftovers (Lutris, Windows Uninstall, dpkg/pacman, Flatpak and Snap implemented).
    GOG Galaxy registry, Linux `gameinfo`-only layouts and Heroic
    Amazon/third-party remain open.
 6. Similar photos via `czkawka_core`.

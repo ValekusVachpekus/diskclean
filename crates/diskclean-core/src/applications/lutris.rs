@@ -85,6 +85,8 @@ pub fn discover_lutris(
                 manifest_path: path.clone(),
                 registry_key: None,
                 reported_size_bytes: None,
+                archive_path: None,
+                snap_state: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,

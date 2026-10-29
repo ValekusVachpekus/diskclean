@@ -147,6 +147,8 @@ pub fn discover_packages(
                             manifest_path: path.clone(),
                             registry_key: None,
                             reported_size_bytes: package.reported_size_bytes,
+                            archive_path: None,
+                            snap_state: None,
                             allocated_bytes: None,
                             logical_bytes: None,
                             size_complete: false,

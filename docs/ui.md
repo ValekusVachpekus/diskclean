@@ -334,3 +334,29 @@ version, package/architecture identity and metadata path, with EN/RU explanation
 of distributed files/dependencies and package-manager uninstall. No Copy path,
 Analyze or cleanup selection. EN/RU dark/light 600 px regressions cover group
 interaction, search, details and source controls.
+
+
+Flatpak follow-up (2026-10-29): apps remain in Games and applications; runtimes
+and extensions have a fourth independent collapsed group, Shared runtimes and
+extensions. Search matches IDs, providers and paths, so architecture/branch
+queries reveal matching cards without changing collapse preferences. Source
+controls include Flatpak and a localized installation-root hint. Details label
+measured deployment size, retain metadata/reference evidence and explain
+hardlink sharing, excluded repository/user data, and non-additive sizes.
+No package estimate or cleanup action is shown. Partial measurements retain the
+shared partial-size warning. EN/RU dark/light 600 px headless tests cover group
+independence, search, details and wrapped source controls. Manual visual and
+pixel-snapshot acceptance remains open.
+
+
+Snap follow-up (2026-10-29): source settings accept a snapd data root. Typed
+system components join the independent shared group, now titled Shared runtimes
+and components; ordinary Snap records stay with apps. Cards show a bounded
+revision/state footer and tooltips retain its full text. Details distinguish
+compressed archive size, current enabled/disabled/retained/unknown state, missing
+archives and source evidence. Archive paths are separate from directory roots:
+Copy path is available, Analyze is absent. Search includes references and archive
+paths and reveals matching collapsed components. No cleanup selection/uninstall
+action is introduced. EN/RU dark/light 600 px tests cover long revision labels,
+group/search/source controls, ownership text, and no extra Analyze action in the
+dialog. Native Snap/real-display visual acceptance remains open.

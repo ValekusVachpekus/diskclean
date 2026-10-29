@@ -7,7 +7,7 @@ here so a fresh agent can recover context after a reset.
 Last updated: 2026-10-29.
 
 Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
-Next: Flatpak/Snap inventory, then P2 ownership/leftovers;
+Next: P2 related-folder ownership and explained leftovers;
 do not restart U3 checks as the next feature milestone. Outstanding release
 checks below remain separately tracked.
 
@@ -44,7 +44,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info and Linux Lutris and Windows Uninstall plus dpkg/pacman inventory; Flatpak/Snap and leftovers remain |
+| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info and Linux Lutris and Windows Uninstall plus dpkg/pacman, Flatpak and Snap inventory; ownership/leftovers remain |
 | Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -467,7 +467,7 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
 - [x] Localized Applications workspace with background search/cancel, virtualized
       card grid, grouped Steam components, cached search, details modal, Copy path
       and drill-down to Analyze; Ctrl+4.
-- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog|lutris|registry|dpkg|pacman`, worker
+- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog|lutris|registry|dpkg|pacman|flatpak|snap`, worker
       and mount-boundary options.
 - [x] Epic `.item` inventory: native Windows automatic location, explicit
       manifest directory, measured sizes, partial/missing/unknown states, GUI/CLI.
@@ -486,7 +486,10 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
 - [x] Linux dpkg/pacman installed-package metadata: native automatic roots,
       explicit database folders, version/architecture, separate declared-size
       estimates, collapsed package cards and no installation-folder actions.
-- [ ] Next providers: Flatpak/Snap (offline inventory and shared-runtime sizing).
+- [x] Flatpak offline inventory: native system/user and explicit installations,
+      active deployments, separate measured runtimes/extensions, GUI/CLI.
+- [x] Snap offline inventory: local state/revisions and compressed archives,
+      separate system components, unknown-state fallback, GUI/CLI.
 - [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
 - [ ] Interactive Windows provider smoke.
 
@@ -572,6 +575,50 @@ cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Phase 4, Snap): Added offline native `/var/lib/snapd` and
+  explicit-root GUI/CLI inventory. Only `data.snaps` is deserialized from bounded
+  `state.json`; unrelated state/authentication fields never enter reports. Reads
+  current enabled/disabled and retained revisions, including local xN revisions
+  and parallel instances. Missing/malformed/unreadable state produces issues;
+  archive-only observations retain unknown installation/activation state. Typed
+  base/os/snapd/kernel/gadget records join the shared-components group. Measures
+  compressed `.snap` files using stable no-follow handles and a bounded SquashFS
+  v4 header check, never /snap mount contents. Archive path and revision state
+  are distinct model fields; the directory root stays empty, with Copy path and
+  no Analyze/cleanup actions. EN/RU cards/details distinguish archive size,
+  revisions, missing files and source evidence, and warn that retained revisions
+  are not cleanup advice. Global limits: 20k entries/records, 64 MiB declared
+  metadata input, 16 MiB/state file; duplicate keys, identity/path escapes,
+  changed sources and header failures are rejected. State is rechecked after
+  inventory and stale activation/classification claims are downgraded. No new
+  dependencies, unsafe code, commands, daemon/network access or elevation.
+  Verification: all 203 workspace tests (48 GUI), fmt, Linux/Windows all-targets
+  clippy -D warnings, diff whitespace and locked Linux workspace release build
+  pass. Native Snap runtime smoke remains open (snapd is absent locally);
+  archive validation is structural, not integrity/signature verification. Snap
+  .comp containers, content-provider/dependency graphs and alternative snapd
+  layouts remain open. Next: P2; GOG extensions and release gates stay tracked.
+
+- 2026-10-29 (Phase 4, Flatpak): Added offline system/user and explicit-root
+  deployment discovery in GUI/CLI, including environment overrides for native
+  roots. Reads active markers as bounded filename evidence, then validates and
+  scans the real deployment directory without traversing aliases. App/runtime
+  metadata must match the directory identity; subpath suffixes (locale checkouts)
+  and multiple branches are supported. Old inactive commits, repo/exports and
+  .removed are not inventoried. Runtime/extension cards have an independent
+  collapsed group, expand on search, and are never added to each app's size.
+  EN/RU details explain shared hardlinks, excluded repo/user data and why sizes
+  cannot be summed or treated as cleanup savings. No commands, network, new
+  dependencies, unsafe code or cleanup candidates. Bounds: 20k traversed entries,
+  64 MiB total declared metadata input, 1 MiB/file and 64 KiB/line; cancellation,
+  no-follow/mount policy, root deduplication and active-marker recheck apply.
+  Native /var/lib/flatpak smoke: 1 app + 5 runtimes/extensions, six measured
+  records, zero issues. All 193 workspace tests (47 GUI), fmt, Linux/Windows
+  all-targets clippy -D warnings, diff whitespace and locked Linux workspace
+  release build pass. Snap is next. Custom installations.d parsing, AppStream
+  friendly names, runtime dependency/ownership graphs and P2 remain open;
+  interactive visual and Windows release gates remain separate.
 
 - 2026-10-29 (Phase 4, dpkg/pacman): Added read-only native Linux automatic
   and explicit-folder inventory from dpkg `status` and pacman local `*/desc`.

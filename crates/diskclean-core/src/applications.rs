@@ -8,20 +8,33 @@ use serde::Serialize;
 
 use crate::{ScanControl, ScanError, ScanIssue, ScanOptions, scan};
 
+mod flatpak;
 mod gog;
 mod lutris;
 mod packages;
 mod registry;
+mod snap;
+pub use flatpak::discover_flatpak;
 pub use gog::discover_gog;
 pub use lutris::discover_lutris;
 pub use packages::discover_packages;
 pub use registry::discover_registry;
+pub use snap::discover_snap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallationStatus {
     Installed,
     Missing,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapRevisionState {
+    CurrentEnabled,
+    CurrentDisabled,
+    Retained,
     Unknown,
 }
 
@@ -41,9 +54,18 @@ pub struct Application {
     pub registry_key: Option<String>,
     /// Package manager estimate, never a measurement or cleanup saving.
     pub reported_size_bytes: Option<u64>,
+    /// Snap archive evidence is a file, never an installation directory.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::error::serialize_optional_path"
+    )]
+    pub archive_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snap_state: Option<SnapRevisionState>,
     pub allocated_bytes: Option<u64>,
     pub logical_bytes: Option<u64>,
-    /// A scan issue or skipped mount makes the measured size a lower bound.
+    /// The folder/archive scope was fully measured, not proof of exclusive
+    /// ownership or integrity. Skipped links/mounts make folder sizes partial.
     pub size_complete: bool,
     pub build_id: Option<String>,
     pub last_played_unix: Option<u64>,
@@ -192,6 +214,8 @@ pub fn discover_steam(
                 manifest_path: path,
                 registry_key: None,
                 reported_size_bytes: None,
+                archive_path: None,
+                snap_state: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -310,6 +334,8 @@ pub fn discover_epic(
                 manifest_path: path,
                 registry_key: None,
                 reported_size_bytes: None,
+                archive_path: None,
+                snap_state: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -355,6 +381,8 @@ pub enum ApplicationSource {
     Registry,
     Dpkg,
     Pacman,
+    Flatpak,
+    Snap,
 }
 
 /// Legendary config directories, including Heroic's Epic backend. Account-wide
@@ -427,6 +455,8 @@ pub fn discover_legendary(
                 manifest_path: path.clone(),
                 registry_key: None,
                 reported_size_bytes: None,
+                archive_path: None,
+                snap_state: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -490,6 +520,8 @@ pub fn discover_applications(
                 options,
                 control,
             ),
+            ApplicationSource::Snap => discover_snap(roots, options, control),
+            ApplicationSource::Flatpak => discover_flatpak(roots, options, control),
             ApplicationSource::Lutris => discover_lutris(roots, options, control),
             ApplicationSource::Steam => discover_steam(roots, options, control),
             ApplicationSource::Epic => discover_epic(roots, options, control),
@@ -507,6 +539,14 @@ pub fn discover_applications(
     let mut report = ApplicationsReport::default();
     for (source, roots) in [
         (ApplicationSource::Steam, steam::default_roots()),
+        (
+            ApplicationSource::Snap,
+            diskclean_platform::snap::default_roots(),
+        ),
+        (
+            ApplicationSource::Flatpak,
+            diskclean_platform::flatpak::default_roots(),
+        ),
         (
             ApplicationSource::Dpkg,
             diskclean_platform::packages::PackageManager::Dpkg.default_roots(),

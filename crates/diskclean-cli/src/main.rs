@@ -52,7 +52,7 @@ enum Command {
 #[derive(Debug, Args)]
 struct ApplicationsArgs {
     /// Provider for an explicit path (Steam by default); registry takes no path.
-    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic", "gog", "heroic-gog", "lutris", "registry", "dpkg", "pacman"])]
+    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic", "gog", "heroic-gog", "lutris", "registry", "dpkg", "pacman", "flatpak", "snap"])]
     provider: Option<String>,
     /// Launcher library/config folder (Heroic GOG takes its Heroic config root).
     path: Option<PathBuf>,
@@ -275,6 +275,8 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
         match args.provider.as_deref() {
             Some("dpkg") => diskclean_core::applications::ApplicationSource::Dpkg,
             Some("pacman") => diskclean_core::applications::ApplicationSource::Pacman,
+            Some("snap") => diskclean_core::applications::ApplicationSource::Snap,
+            Some("flatpak") => diskclean_core::applications::ApplicationSource::Flatpak,
             Some("registry") => diskclean_core::applications::ApplicationSource::Registry,
             Some("lutris") => diskclean_core::applications::ApplicationSource::Lutris,
             Some("gog") => diskclean_core::applications::ApplicationSource::Gog,
@@ -298,15 +300,29 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
             println!(
                 "{} · {} · {:?} · {}\n  {}",
                 app.launcher,
-                app.name,
+                if let Some(state) = app.snap_state {
+                    format!(
+                        "{} · revision {} · {state:?}",
+                        app.name,
+                        app.build_id.as_deref().unwrap_or("?")
+                    )
+                } else {
+                    app.name.clone()
+                },
                 app.status,
                 app.allocated_bytes
-                    .map(format_bytes)
+                    .map(|bytes| if app.archive_path.is_some() {
+                        format!("{} (Snap archive)", format_bytes(bytes))
+                    } else {
+                        format_bytes(bytes)
+                    })
                     .or_else(|| app
                         .reported_size_bytes
                         .map(|bytes| format!("{} (package estimate)", format_bytes(bytes))))
                     .unwrap_or_else(|| "unknown size".into()),
-                if app.install_path.as_os_str().is_empty() {
+                if let Some(archive) = &app.archive_path {
+                    archive.display().to_string()
+                } else if app.install_path.as_os_str().is_empty() {
                     "installation folder unknown".into()
                 } else {
                     app.install_path.display().to_string()

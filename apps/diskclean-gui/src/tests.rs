@@ -1345,6 +1345,8 @@ fn applications_ui_fixture() -> diskclean_core::applications::ApplicationsReport
             manifest_path: "/virtual/Steam/steamapps/appmanifest_10.acf".into(),
             registry_key: None,
             reported_size_bytes: None,
+            archive_path: None,
+            snap_state: None,
             allocated_bytes: Some(GIB),
             logical_bytes: Some(GIB),
             size_complete: true,
@@ -1858,6 +1860,182 @@ fn system_packages_are_collapsed_searchable_and_explain_estimated_sizes() {
                 assert_eq!(harness.state().applications.source, source);
                 assert!(harness.query_by_label(language.text(key)).is_some());
             }
+        }
+    }
+}
+
+#[test]
+fn flatpak_runtimes_are_separate_searchable_and_explain_shared_storage() {
+    use crate::i18n::Key;
+    use diskclean_core::applications::ApplicationSource;
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = theme;
+            app.workspace = Workspace::Applications;
+            let mut report = applications_ui_fixture();
+            report.applications.truncate(1);
+            let runtime = &mut report.applications[0];
+            runtime.name = "org.example.Platform.Locale".into();
+            runtime.id = "runtime/org.example.Platform.Locale/x86_64/25.08".into();
+            runtime.launcher = "Flatpak runtime".into();
+            runtime.manifest_path = runtime.install_path.join("metadata");
+            app.applications.report = Some(report);
+            let mut harness = harness(app, Vec2::new(600.0, 640.0));
+            assert!(
+                harness
+                    .query_by_label("org.example.Platform.Locale")
+                    .is_none()
+            );
+            let title = format!(
+                "{}  {} · 1",
+                crate::ui::icons::CARET_RIGHT,
+                language.text(Key::ApplicationRuntimes)
+            );
+            let header = harness.get_by_label(&title);
+            assert!(header.rect().right() <= 600.0);
+            header.click();
+            harness.run();
+            assert!(harness.state().applications.show_runtimes);
+            assert!(!harness.state().applications.show_packages);
+            harness.get_by_label("org.example.Platform.Locale").click();
+            harness.run();
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::FlatpakOwnership))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::FlatpakDeploymentSize))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::PackageReportedSize))
+                    .is_none()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::CopyPath))
+                    .is_some()
+            );
+            assert!(harness.state().cleanup.selected.is_empty());
+            harness.get_by_label(language.text(Key::Close)).click();
+            harness.run();
+            harness.state_mut().applications.show_runtimes = false;
+            harness.state_mut().applications.search = "25.08".into();
+            harness.run();
+            assert!(
+                harness
+                    .query_by_label("org.example.Platform.Locale")
+                    .is_some()
+            );
+            harness
+                .get_by_label(language.text(Key::SteamLibrarySettings))
+                .click();
+            harness.run();
+            let source = harness.get_by_label("Flatpak");
+            assert!(source.rect().right() <= 600.0);
+            source.click();
+            harness.run();
+            assert_eq!(
+                harness.state().applications.source,
+                ApplicationSource::Flatpak
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::FlatpakRootHint))
+                    .is_some()
+            );
+        }
+    }
+}
+
+#[test]
+fn snap_archive_details_never_offer_directory_analysis_and_keep_components_collapsed() {
+    use crate::i18n::Key;
+    use diskclean_core::applications::{ApplicationSource, SnapRevisionState};
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = theme;
+            app.workspace = Workspace::Applications;
+            let mut report = applications_ui_fixture();
+            report.applications.truncate(1);
+            let row = &mut report.applications[0];
+            row.name = "core22".into();
+            row.id = "core22/9223372036854775807".into();
+            row.launcher = "Snap runtime".into();
+            row.install_path.clear();
+            row.archive_path = Some("/virtual/snapd/snaps/core22_9223372036854775807.snap".into());
+            row.snap_state = Some(SnapRevisionState::CurrentDisabled);
+            row.build_id = Some("9223372036854775807".into());
+            row.manifest_path = "/virtual/snapd/state.json".into();
+            app.applications.report = Some(report);
+            let mut harness = harness(app, Vec2::new(600.0, 640.0));
+            assert!(harness.query_by_label("core22").is_none());
+            let title = format!(
+                "{}  {} · 1",
+                crate::ui::icons::CARET_RIGHT,
+                language.text(Key::ApplicationRuntimes)
+            );
+            harness.get_by_label(&title).click();
+            harness.run();
+            let analyze_actions = harness
+                .query_all_by_label(language.text(Key::Analyze))
+                .count();
+            harness.get_by_label("core22").click();
+            harness.run();
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::SnapOwnership))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::SnapArchiveSize))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::CopyPath))
+                    .is_some()
+            );
+            assert_eq!(
+                harness
+                    .query_all_by_label(language.text(Key::Analyze))
+                    .count(),
+                analyze_actions,
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::ApplicationNoInstallPath))
+                    .is_none()
+            );
+            assert!(harness.state().cleanup.selected.is_empty());
+            harness.get_by_label(language.text(Key::Close)).click();
+            harness.run();
+            harness.state_mut().applications.show_runtimes = false;
+            harness.state_mut().applications.search = "9223372036854775807".into();
+            harness.run();
+            assert!(harness.query_by_label("core22").is_some());
+            harness
+                .get_by_label(language.text(Key::SteamLibrarySettings))
+                .click();
+            harness.run();
+            let source = harness.get_by_label("Snap");
+            assert!(source.rect().right() <= 600.0);
+            source.click();
+            harness.run();
+            assert_eq!(harness.state().applications.source, ApplicationSource::Snap);
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::SnapRootHint))
+                    .is_some()
+            );
         }
     }
 }
