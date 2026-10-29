@@ -1,7 +1,8 @@
 # Applications and games
 
 Phase 4 is in progress. Steam, Epic Games Launcher, Legendary and Heroic Epic
-inventory are implemented, plus Heroic GOG and explicit GOG `.info` sources.
+inventory are implemented, plus Heroic GOG, explicit GOG `.info` sources and
+Linux Lutris.
 Discovery is read-only and works offline; it never uninstalls games or creates cleanup selections.
 
 ## Usage
@@ -169,7 +170,8 @@ presence as installation evidence. This is not content-integrity verification.
 Missing Heroic installation folders stay Missing, not disposable leftovers.
 Sizes measure the complete installation folder with the shared scanner; they
 do not use `install_size`. Multiple base/DLC records can share a measured folder;
-there is no summed inventory total. Separate saves/prefixes are not included.
+there is no summed inventory total. External saves/prefixes are not included; anything inside the recorded folder
+is part of its measurement.
 
 ```bash
 cargo run -p diskclean-cli -- applications /path/to/GOG-Games --provider gog --json
@@ -187,12 +189,65 @@ Format references: Heroic's
 and [local install handling](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/blob/main/src/backend/storeManagers/gog/library.ts).
 Only formats were consulted; launcher code is not imported.
 
+## Lutris (Linux)
+
+The **Lutris** source uses the data folder containing `pga.db`, not the YAML
+config `games` folder. Automatic roots are `$XDG_DATA_HOME/lutris` (fallback
+`~/.local/share/lutris`) and Flatpak's
+`~/.var/app/net.lutris.Lutris/data/lutris`. Custom Lutris `pga_path` settings are
+not parsed; an explicit source must contain a database named `pga.db`.
+
+```bash
+cargo run -p diskclean-cli -- applications /path/to/lutris-data --provider lutris --json
+```
+
+Only the `games` table's `installed=1` rows are inventoried; account-wide
+`service_games`, YAML launch commands and credentials are ignored. IDs, names,
+recorded installation directories and optional last-played timestamps are local
+metadata evidence. Invalid rows are counted as issues. Installed means the
+record is marked installed and its directory exists; there is no integrity
+check or uninstall inference. Missing folders stay Missing. Sizes use the shared
+read-only scanner/cache and are never summed across records. A recorded folder
+may contain a Wine prefix, saves or shared content: all content inside it is
+included, while external related data is excluded. No ownership or reclaimable
+space is inferred from the whole directory.
+
+The platform `lutris` feature is enabled by default, but only Linux compiles the
+approved `rusqlite` dependency. SQLite is bundled; no external SQLite program or
+system library is required. Windows automatic discovery omits Lutris; explicit
+Lutris source requests produce an unsupported-source issue.
+
+SQLite never opens the original database. The reader makes a private temporary
+snapshot of `pga.db` and any `-wal` through no-follow regular-file handles;
+source `-shm` is not opened. The snapshot can create its own sidecars only inside
+its owned temporary directory, removed on drop. Source metadata is captured and
+rechecked after copying: identity, size and precise modification timestamps.
+A nonempty rollback journal, changed source, linked sidecar or malformed database
+is rejected with an issue and can be retried after the writer finishes. This is
+an optimistic read snapshot; the scanner's residual path/rename races still
+apply, and no stable cross-process transaction is claimed for a malicious writer.
+
+Each source DB/WAL file caps at 64 MiB; results cap at 20,000 installed rows and
+1 MiB SQLite values, with a 10-million VM-operation budget. Copies check
+cancellation between 64 KiB reads; SQLite checks it through a progress callback.
+Only fixed SELECT/PRAGMA statements are used, trusted schema is disabled and
+`games` must be a real table. The original database and its WAL/SHM bytes are
+covered by non-mutation tests, including committed WAL-only records. Other
+fixtures cover source changes, corruption, bounds, invalid/uninstalled rows,
+missing/shared folders, hardlinks, links/mounts, cancellation and GUI/CLI source
+selection in EN/RU and both themes.
+
+Format references: Lutris's
+[database schema](https://github.com/lutris/lutris/blob/master/lutris/database/schema.py)
+and [data-path settings](https://github.com/lutris/lutris/blob/master/lutris/settings.py).
+See [dependency notes](dependencies.md) for the added SQLite dependency.
+
 ## Boundaries and tests
 
 Platform owns local metadata access and the text KeyValues parser. Core maps
 these facts into inventory records and scans content; GUI and CLI consume the
-same report. Platform now uses the existing approved `serde_json` workspace dependency;
-no new third-party package was added.
+same report. Platform uses the approved `serde_json` workspace dependency and, for Linux
+Lutris only, feature-gated `rusqlite` with bundled SQLite.
 
 Both `steamapps/libraryfolders.vdf` and `config/libraryfolders.vdf` are inspected,
 including legacy numbered strings and current numbered objects. Parsing is
@@ -217,7 +272,8 @@ The parser here is implemented locally without importing another parser.
 
 ## Remaining Phase 4 work
 
-Next: Lutris. GOG Galaxy registry, native Linux `gameinfo`-only layouts,
+Next: Windows Uninstall registry, including GOG discovery. Native Linux
+`gameinfo`-only layouts,
 Heroic Amazon/third-party,
 Windows registry and Linux package discovery remain; related
 folder ownership; P1 category totals; and P2 explained leftovers with explicit

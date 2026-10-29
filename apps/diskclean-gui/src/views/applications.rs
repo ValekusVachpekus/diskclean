@@ -154,6 +154,7 @@ impl DiskCleanupApp {
                             (ApplicationSource::Legendary, "Legendary"),
                             (ApplicationSource::Heroic, "Heroic (Epic)"),
                             (ApplicationSource::Gog, "GOG"),
+                            (ApplicationSource::Lutris, "Lutris"),
                             (ApplicationSource::HeroicGog, "Heroic (GOG)"),
                         ] {
                             ui.selectable_value(&mut self.applications.source, source, label);
@@ -161,6 +162,7 @@ impl DiskCleanupApp {
                     });
                 });
                 let hint = match self.applications.source {
+                    ApplicationSource::Lutris => Key::LutrisRootHint,
                     ApplicationSource::Gog => Key::GogRootHint,
                     ApplicationSource::HeroicGog => Key::HeroicGogRootHint,
                     ApplicationSource::Steam => Key::SteamRootHint,
@@ -566,6 +568,7 @@ impl DiskCleanupApp {
                         ui.add(egui::Label::new(path.as_ref()).truncate())
                             .on_hover_text(path.as_ref());
                         ui.label(language.text(match app.launcher.as_str() {
+                            "Lutris" => Key::LutrisOwnership,
                             "GOG" => Key::GogOwnership,
                             "Heroic (GOG)" => Key::HeroicGogOwnership,
                             "Steam" => Key::SteamOwnership,

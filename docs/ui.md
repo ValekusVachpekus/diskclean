@@ -309,3 +309,9 @@ wrapped source picker distinguishes GOG game/library folders from Heroic config
 roots. Details explain local info/folder-name evidence; unfinished downloads
 stay uncertain and sizes remain installation-only. EN/RU dark/light tests cover
 both new selectors and details at 600 px.
+
+Lutris follow-up (2026-10-29): seventh source uses a Lutris data directory with
+`pga.db` on Linux, with native/Flatpak automatic discovery. Source buttons wrap
+at narrow widths. Details explain DB evidence, Wine/shared-directory accounting
+and last-played metadata; generic size scope now explicitly includes all files
+inside the recorded directory. EN/RU dark/light source/details coverage at 600 px.

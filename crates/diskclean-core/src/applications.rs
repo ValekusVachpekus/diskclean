@@ -9,7 +9,9 @@ use serde::Serialize;
 use crate::{ScanControl, ScanError, ScanIssue, ScanOptions, scan};
 
 mod gog;
+mod lutris;
 pub use gog::discover_gog;
+pub use lutris::discover_lutris;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -335,6 +337,7 @@ pub enum ApplicationSource {
     Heroic,
     Gog,
     HeroicGog,
+    Lutris,
 }
 
 /// Legendary config directories, including Heroic's Epic backend. Account-wide
@@ -446,6 +449,7 @@ pub fn discover_applications(
 ) -> Result<ApplicationsReport, ScanError> {
     if let Some(roots) = roots {
         return match source {
+            ApplicationSource::Lutris => discover_lutris(roots, options, control),
             ApplicationSource::Steam => discover_steam(roots, options, control),
             ApplicationSource::Epic => discover_epic(roots, options, control),
             ApplicationSource::Gog | ApplicationSource::HeroicGog => discover_gog(
@@ -462,6 +466,10 @@ pub fn discover_applications(
     let mut report = ApplicationsReport::default();
     for (source, roots) in [
         (ApplicationSource::Steam, steam::default_roots()),
+        (
+            ApplicationSource::Lutris,
+            diskclean_platform::lutris::default_roots(),
+        ),
         (
             ApplicationSource::Epic,
             diskclean_platform::epic::default_roots(),
@@ -482,10 +490,10 @@ pub fn discover_applications(
         let roots: Vec<_> = roots
             .into_iter()
             .filter(|path| {
-                let probe = if source == ApplicationSource::HeroicGog {
-                    path.join("gog_store/installed.json")
-                } else {
-                    path.clone()
+                let probe = match source {
+                    ApplicationSource::HeroicGog => path.join("gog_store/installed.json"),
+                    ApplicationSource::Lutris => path.join("pga.db"),
+                    _ => path.clone(),
                 };
                 probe.symlink_metadata().is_ok()
             })

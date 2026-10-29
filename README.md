@@ -18,7 +18,8 @@ explanation and a risk level.
 - [x] Linux release build verified
 - [ ] Interactive Windows runtime test (the Windows target compiles and passes
       clippy)
-- [x] Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG inventory with measured sizes (GUI + CLI)
+- [x] Steam/Epic/Legendary, Heroic Epic/GOG, explicit GOG and Linux Lutris
+      inventory with measured sizes (GUI + CLI)
 - [ ] Other launchers, packages and explained application leftovers
 - [ ] Similar photos/videos
 - [ ] Packaging
@@ -36,6 +37,8 @@ Heroic locations are detected. Heroic GOG uses the Heroic config root containing
 `gog_store/installed.json`. Direct GOG accepts a game or shallow library folder
 with `goggame-*.info`. Galaxy registry discovery, native Linux `gameinfo`-only
 layouts and Heroic Amazon remain pending.
+Lutris reads installed records from native/Flatpak `pga.db` on Linux; its explicit
+source is the data folder containing that database.
 Search measures installation sizes in the
 background, supports cancellation and opens individual games in Analyze.
 Results appear as responsive cards, with games first and Steam components
@@ -52,6 +55,7 @@ cargo run -p diskclean-cli -- applications /path/to/legendary --provider legenda
 cargo run -p diskclean-cli -- applications /path/to/heroic/legendaryConfig/legendary --provider heroic --json
 cargo run -p diskclean-cli -- applications /path/to/GOG-Games --provider gog --json
 cargo run -p diskclean-cli -- applications /path/to/heroic --provider heroic-gog --json
+cargo run -p diskclean-cli -- applications /path/to/lutris-data --provider lutris --json
 ```
 
 

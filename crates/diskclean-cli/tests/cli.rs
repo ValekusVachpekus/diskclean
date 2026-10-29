@@ -404,3 +404,41 @@ fn applications_gog_and_heroic_gog_measure_local_installations() {
     }
     assert!(game.join("data.bin").exists());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn applications_lutris_queries_installed_rows_and_never_changes_source() {
+    let temp = tempdir().expect("temp");
+    let root = temp.path().join("lutris");
+    fs::create_dir_all(&root).expect("root");
+    let game = temp.path().join("Game");
+    write_file(&game.join("data.bin"), 345);
+    let path = root.join("pga.db");
+    let db = rusqlite::Connection::open(&path).expect("db");
+    db.execute_batch("CREATE TABLE games(id INTEGER,name TEXT,directory TEXT,lastplayed INTEGER,installed INTEGER);INSERT INTO games VALUES(2,'Catalog','/not-installed',0,0);").expect("schema");
+    db.execute(
+        "INSERT INTO games VALUES(1,'Lutris Test',?1,123,1)",
+        [game.to_string_lossy().as_ref()],
+    )
+    .expect("row");
+    drop(db);
+    let before = fs::read(&path).expect("before");
+    let output = diskclean()
+        .arg("applications")
+        .arg(&root)
+        .args(["--provider", "lutris", "--json"])
+        .output()
+        .expect("run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(report["applications"].as_array().expect("apps").len(), 1);
+    assert_eq!(report["applications"][0]["launcher"], "Lutris");
+    assert_eq!(report["applications"][0]["logical_bytes"], 345);
+    assert_eq!(report["applications"][0]["last_played_unix"], 123);
+    assert_eq!(fs::read(&path).expect("after"), before);
+    assert_eq!(fs::read_dir(root).expect("dir").count(), 1);
+}

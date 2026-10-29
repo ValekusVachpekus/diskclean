@@ -114,7 +114,8 @@ Wayland, xkbcommon, and Mesa development packages needed by `eframe`.
   (CC0-1.0/Apache-2.0), `toml`, `serde`, `serde_json`, `thiserror`, `clap`,
   `anyhow`, `ctrlc`, `rayon`, `tempfile`, `assert_cmd`, and `predicates`
   (MIT/Apache-2.0), `sysinfo` (MIT), `libc` (MIT/Apache-2.0; platform-only
-  no-follow/nonblocking file-open flags).
+  no-follow/nonblocking file-open flags), and `rusqlite` (MIT) for Linux Lutris
+  only behind platform's `lutris` feature, with bundled SQLite (public domain).
   Approved for future phases when the feature actually lands:
   `czkawka_core` (MIT), `winreg` (MIT/Apache-2.0), `image`
   (MIT/Apache-2.0). `rusqlite` (MIT) may be used only for Lutris discovery and
@@ -388,6 +389,24 @@ are not claimed; next source is Lutris. Verification: all 159 workspace tests
 (43 GUI), fmt, Linux/Windows all-targets workspace clippy -D warnings and locked
 Linux workspace release build pass. Interactive Windows smoke remains open.
 
+Lutris milestone (2026-10-29): Linux `pga.db` installed-game inventory is wired
+into GUI/CLI and native/Flatpak automatic discovery. `rusqlite` is now in use
+only for Lutris, via platform's optional default `lutris` feature and Linux cfg;
+SQLite is bundled, so users need no SQLite executable or development library.
+SQLite reads a private bounded snapshot of database/WAL; it never opens the
+source and cannot create its sidecars. Source identity/size/timestamps are
+revalidated, rollback journals are rejected and snapshot/query/row limits plus
+cancellation bound work. Owned temporary snapshots are removed on drop; this is
+metadata-reader scratch storage, not user-data cleanup. Core provider code is in
+`crates/diskclean-core/src/applications/lutris.rs`, with shared scanner size and
+mount policy. Names, installed flags, directories and last played come from the
+DB; recorded directories may contain Wine prefixes and shared files, explained
+in EN/RU details. Windows Lutris inventory is unsupported and not auto-probed.
+Next: Windows registry. Verification: all 167 workspace tests (44 GUI), fmt,
+Linux/Windows all-targets workspace clippy -D warnings, platform no-default-feature
+check and locked Linux workspace release build pass. See `docs/plan.md` and
+`docs/dependencies.md`.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -402,8 +421,9 @@ Linux workspace release build pass. Interactive Windows smoke remains open.
    **Complete.**
 5. Apps/games: **In progress.** Steam, Epic, Legendary and Heroic Epic inventory
    GUI/CLI implemented, plus Heroic GOG and explicit GOG `.info` folders. Next:
-   Lutris, registry/packages and leftovers. GOG Galaxy registry, Linux
-   `gameinfo`-only layouts and Heroic Amazon/third-party remain open.
+   Windows registry (Linux Lutris implemented), then packages and leftovers.
+   GOG Galaxy registry, Linux `gameinfo`-only layouts and Heroic
+   Amazon/third-party remain open.
 6. Similar photos via `czkawka_core`.
 7. Similar videos via `czkawka_core` + system `ffmpeg`.
 8. System command recommendations and packaging polish.

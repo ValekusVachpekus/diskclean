@@ -1664,3 +1664,49 @@ fn gog_cards_and_wrapping_source_picker_work_in_both_languages_and_themes() {
         }
     }
 }
+
+#[test]
+fn lutris_source_and_localized_details_fit_narrow_windows() {
+    use crate::i18n::Key;
+    use diskclean_core::applications::ApplicationSource;
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = theme;
+            app.workspace = Workspace::Applications;
+            let mut report = applications_ui_fixture();
+            report.applications[0].name = "Lutris Game".into();
+            report.applications[0].launcher = "Lutris".into();
+            app.applications.report = Some(report);
+            let mut harness = harness(app, Vec2::new(600.0, 600.0));
+            harness.get_by_label("Lutris Game").click();
+            harness.run();
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::LutrisOwnership))
+                    .is_some()
+            );
+            assert!(harness.state().cleanup.selected.is_empty());
+            harness.get_by_label(language.text(Key::Close)).click();
+            harness.run();
+            harness
+                .get_by_label(language.text(Key::SteamLibrarySettings))
+                .click();
+            harness.run();
+            let button = harness.get_by_label("Lutris");
+            assert!(button.rect().right() <= 600.0);
+            button.click();
+            harness.run();
+            assert_eq!(
+                harness.state().applications.source,
+                ApplicationSource::Lutris
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::LutrisRootHint))
+                    .is_some()
+            );
+        }
+    }
+}

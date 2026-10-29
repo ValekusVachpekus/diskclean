@@ -7,7 +7,7 @@ here so a fresh agent can recover context after a reset.
 Last updated: 2026-10-29.
 
 Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
-Next: Lutris inventory, then Windows registry/packages and P2 ownership/leftovers;
+Next: Windows registry inventory, then Linux packages and P2 ownership/leftovers;
 do not restart U3 checks as the next feature milestone. Outstanding release
 checks below remain separately tracked.
 
@@ -44,7 +44,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info inventory; Lutris next; registry/packages and leftovers remain |
+| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info and Linux Lutris inventory; registry next; packages and leftovers remain |
 | Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -277,7 +277,7 @@ apps/diskclean-gui/src/
   `sys-locale`; core `blake3`; rules `toml`; cleanup `trash`, `serde_json`,
   `thiserror`; CLI `clap`, `anyhow`, `ctrlc`; tests `tempfile`, `assert_cmd`,
   `predicates`, `egui_kittest`. Future: apps `winreg` on Windows and optional
-  `rusqlite` for Lutris; similar `czkawka_core` optional, `image` for
+  `rusqlite` for Lutris (now used on Linux behind the `lutris` feature); similar `czkawka_core` optional, `image` for
   thumbnails.
 
 ## Functional architecture
@@ -467,7 +467,7 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
 - [x] Localized Applications workspace with background search/cancel, virtualized
       card grid, grouped Steam components, cached search, details modal, Copy path
       and drill-down to Analyze; Ctrl+4.
-- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog`, worker
+- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog|lutris`, worker
       and mount-boundary options.
 - [x] Epic `.item` inventory: native Windows automatic location, explicit
       manifest directory, measured sizes, partial/missing/unknown states, GUI/CLI.
@@ -477,8 +477,10 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
       explicit GOG game/library folders with `goggame-*.info`; GUI/CLI and sizes.
 - [ ] GOG extensions: Galaxy registry discovery and native Linux `gameinfo`
       layouts without `.info` metadata. Heroic Amazon/third-party remain separate.
-- [ ] Next provider: Lutris. Windows registry and Linux package inventories
-      remain open.
+- [x] Linux Lutris native/Flatpak `pga.db`: installed rows, bounded private
+      SQLite/WAL snapshots, shared size pipeline, GUI/CLI and cancellation.
+- [ ] Next provider: Windows Uninstall registry (including GOG discovery).
+      Linux package inventories remain open.
 - [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
 - [ ] Interactive Windows provider smoke.
 
@@ -562,6 +564,25 @@ cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Phase 4, Lutris): Implemented Linux installed-game inventory from
+  `pga.db`, chosen over incomplete YAML configs because the database provides
+  installation status, directory, name and last-played evidence. Native XDG and
+  Flatpak data roots are automatic; explicit roots contain `pga.db`. Source
+  database/WAL files are copied via no-follow opens into an owned temporary
+  directory, identity/size/precise timestamps are rechecked, and only the copy
+  is opened by SQLite. Source SHM is never opened; rollback journals, changed
+  snapshots, linked metadata and malformed schemas become issues. Snapshot files
+  cap at 64 MiB each; queries cap at 20k rows, 1 MiB values and 10M VM operations,
+  with cooperative cancellation. Installed rows use the shared scanner/cache;
+  missing directories remain missing and shared/Wine-containing directories are
+  explained in EN/RU details. Added the approved `rusqlite` behind platform's
+  Linux-only default `lutris` feature (bundled SQLite); it can be disabled for
+  platform-only builds. No unsafe code added. Next: Windows registry inventory.
+  Verification: all 167 workspace tests (44 GUI), fmt, Linux/Windows all-targets
+  workspace clippy -D warnings, platform check without default features, diff
+  whitespace and locked Linux workspace release build pass. Windows Lutris is
+  intentionally unsupported; remaining Windows providers still need runtime smoke.
 
 - 2026-10-29 (Phase 4, GOG metadata/Heroic GOG): Added offline Heroic
   `gog_store/installed.json` discovery, native/Flatpak auto locations and explicit
