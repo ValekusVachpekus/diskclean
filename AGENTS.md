@@ -361,6 +361,20 @@ remain open. Verification: fmt, all 144 workspace tests (41 GUI), Linux and
 Windows all-targets workspace clippy -D warnings and locked Linux workspace
 release build pass. See `docs/applications.md` and `docs/plan.md`.
 
+Legendary/Heroic Epic milestone (2026-10-29): platform reads bounded local
+`installed.json` (8 MiB, 20,000 records, serde_json recursion bound), validates
+IDs/paths and retains valid rows alongside invalid-record issues. Core uses the
+shared read-only size pipeline, cancellation and mount/link policy. Automatic
+sources include native Legendary, Heroic and Linux Flatpak Heroic; explicit GUI
+and CLI sources accept the config folder containing `installed.json`. A typed
+`ApplicationSource` replaces the Steam/Epic boolean. Verification/preload flags
+must be explicitly false to claim Installed; missing flags remain uncertain.
+Source labels and explanations are localized. No new dependencies. Next: GOG
+inventory including Heroic; Amazon, third-party records, P2 and Windows runtime
+acceptance remain open. Verification: all 151 workspace tests (42 GUI), fmt,
+Linux/Windows all-targets workspace clippy -D warnings and locked Linux workspace
+release build pass. See `docs/plan.md`.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -373,8 +387,9 @@ release build pass. See `docs/applications.md` and `docs/plan.md`.
    **Complete.**
 4. Exact duplicates: size -> prefix hash -> full BLAKE3, hardlink handling.
    **Complete.**
-5. Apps/games: **In progress.** Steam and Epic inventory GUI/CLI implemented;
-   Heroic/Legendary next, then GOG/Lutris, registry/packages and leftovers.
+5. Apps/games: **In progress.** Steam, Epic, Legendary and Heroic Epic inventory
+   GUI/CLI implemented; next GOG (including Heroic), then Lutris,
+   registry/packages and leftovers. Heroic GOG/Amazon are not yet covered.
 6. Similar photos via `czkawka_core`.
 7. Similar videos via `czkawka_core` + system `ffmpeg`.
 8. System command recommendations and packaging polish.

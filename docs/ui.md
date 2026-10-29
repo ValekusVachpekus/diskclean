@@ -297,3 +297,9 @@ Source settings now choose Steam or Epic for explicit folders; an empty source
 searches both native providers. Card status lines include the launcher, details
 show its own metadata explanation, and Epic never enters the Steam components
 group. EN/RU dark/light tests cover source selection and Epic details.
+
+Legendary/Heroic Epic follow-up (2026-10-29): source settings use a typed four-way
+selector (Steam, Epic Games, Legendary, Heroic Epic) that wraps on narrow windows.
+Automatic discovery searches all implemented formats. Heroic/Legendary details
+explain that GOG/Amazon are separate sources; cards retain their launcher labels.
+EN/RU dark/light regression covers source selection and details at 600 px.

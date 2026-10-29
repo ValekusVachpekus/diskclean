@@ -18,19 +18,22 @@ explanation and a risk level.
 - [x] Linux release build verified
 - [ ] Interactive Windows runtime test (the Windows target compiles and passes
       clippy)
-- [x] Steam/Epic games inventory with measured sizes (GUI + CLI)
+- [x] Steam/Epic/Legendary and Heroic Epic inventory with measured sizes (GUI + CLI)
 - [ ] Other launchers, packages and explained application leftovers
 - [ ] Similar photos/videos
 - [ ] Packaging
 
 ## Features
 
-### Applications and games (Steam + Epic)
+### Applications and games
 
-Open **Applications** (`Ctrl+4`) to find native Steam/Epic locations,
-or choose Steam/Epic and enter its source folder in the collapsed settings.
+Open **Applications** (`Ctrl+4`) to search common Steam, Epic, Legendary and
+Heroic Epic locations, or select a source folder in the collapsed settings.
 Steam accepts a Steam/SteamLibrary folder; Epic accepts its `Manifests` folder
-with `.item` files (automatic detection on Windows). Search measures installation sizes in the
+with `.item` files (automatic detection on Windows). Legendary and Heroic Epic
+accept the config folder containing `installed.json`; native and Linux Flatpak
+Heroic locations are detected. Heroic GOG/Amazon are separate, pending providers.
+Search measures installation sizes in the
 background, supports cancellation and opens individual games in Analyze.
 Results appear as responsive cards, with games first and Steam components
 collapsed. Search covers names and paths; a card opens details without moving
@@ -42,6 +45,8 @@ leftover cleanup are planned. [Scope and safety](docs/applications.md).
 ```bash
 cargo run -p diskclean-cli -- applications /path/to/Steam --json
 cargo run -p diskclean-cli -- applications /path/to/Manifests --provider epic --json
+cargo run -p diskclean-cli -- applications /path/to/legendary --provider legendary --json
+cargo run -p diskclean-cli -- applications /path/to/heroic/legendaryConfig/legendary --provider heroic --json
 ```
 
 

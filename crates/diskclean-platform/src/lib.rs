@@ -7,6 +7,7 @@
 
 pub mod epic;
 pub mod file_meta;
+pub mod legendary;
 pub mod mounts;
 pub mod steam;
 pub mod user_dirs;

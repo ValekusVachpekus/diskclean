@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
 use diskclean_core::applications::{
-    Application, ApplicationsReport, InstallationStatus, discover_applications,
+    Application, ApplicationSource, ApplicationsReport, InstallationStatus, discover_applications,
 };
 use diskclean_core::{ScanControl, ScanError, ScanOptions};
 use eframe::egui::{self, Align2, FontId, RichText, Stroke, vec2};
@@ -27,7 +27,7 @@ impl Drop for InventoryJob {
 #[derive(Default)]
 pub(crate) struct ApplicationsWorkspace {
     pub(crate) root: String,
-    pub(crate) epic_source: bool,
+    pub(crate) source: ApplicationSource,
     pub(crate) report: Option<ApplicationsReport>,
     pub(crate) selected: Option<usize>,
     job: Option<InventoryJob>,
@@ -45,7 +45,7 @@ impl DiskCleanupApp {
         }
         let roots = (!self.applications.root.trim().is_empty())
             .then(|| vec![PathBuf::from(&self.applications.root)]);
-        let epic = self.applications.epic_source;
+        let source = self.applications.source;
         let options = ScanOptions {
             threads: self.settings.worker_threads,
             cross_filesystems: self.settings.cross_filesystems,
@@ -59,7 +59,7 @@ impl DiskCleanupApp {
             .spawn(move || {
                 let _ = sender.send(discover_applications(
                     roots.as_deref(),
-                    epic,
+                    source,
                     &options,
                     &worker,
                 ));
@@ -148,14 +148,22 @@ impl DiskCleanupApp {
             .show(ui, |ui| {
                 ui.add_enabled_ui(!busy, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        ui.selectable_value(&mut self.applications.epic_source, false, "Steam");
-                        ui.selectable_value(&mut self.applications.epic_source, true, "Epic Games");
+                        for (source, label) in [
+                            (ApplicationSource::Steam, "Steam"),
+                            (ApplicationSource::Epic, "Epic Games"),
+                            (ApplicationSource::Legendary, "Legendary"),
+                            (ApplicationSource::Heroic, "Heroic (Epic)"),
+                        ] {
+                            ui.selectable_value(&mut self.applications.source, source, label);
+                        }
                     });
                 });
-                let hint = if self.applications.epic_source {
-                    Key::EpicRootHint
-                } else {
-                    Key::SteamRootHint
+                let hint = match self.applications.source {
+                    ApplicationSource::Steam => Key::SteamRootHint,
+                    ApplicationSource::Epic => Key::EpicRootHint,
+                    ApplicationSource::Legendary | ApplicationSource::Heroic => {
+                        Key::LegendaryRootHint
+                    }
                 };
                 ui.label(language.text(hint));
                 ui.add_enabled(
@@ -553,10 +561,10 @@ impl DiskCleanupApp {
                         let path = app.install_path.to_string_lossy();
                         ui.add(egui::Label::new(path.as_ref()).truncate())
                             .on_hover_text(path.as_ref());
-                        ui.label(language.text(if app.launcher == "Steam" {
-                            Key::SteamOwnership
-                        } else {
-                            Key::EpicOwnership
+                        ui.label(language.text(match app.launcher.as_str() {
+                            "Steam" => Key::SteamOwnership,
+                            "Legendary" | "Heroic (Epic)" => Key::LegendaryOwnership,
+                            _ => Key::EpicOwnership,
                         }));
                         ui.label(language.text(Key::ApplicationDataScope));
                         if let Some(build) = &app.build_id {

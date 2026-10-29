@@ -320,3 +320,48 @@ fn applications_epic_provider_measures_explicit_manifest_directory() {
         .assert()
         .failure();
 }
+
+#[test]
+fn applications_legendary_and_heroic_use_only_installed_records() {
+    let temp = tempdir().expect("temp");
+    let root = temp.path().join("legendary");
+    fs::create_dir_all(&root).expect("config");
+    let install = temp.path().join("Game");
+    write_file(&install.join("data.bin"), 222);
+    fs::write(
+        root.join("installed.json"),
+        serde_json::json!({"id": {
+        "app_name":"id", "title":"Legendary Game", "install_path":install,
+        "needs_verification":false, "is_preloaded":false, "install_size":999999
+    }, "bad": null})
+        .to_string(),
+    )
+    .expect("metadata");
+    fs::write(root.join("user.json"), "invalid and never read").expect("user");
+    fs::create_dir_all(root.join("metadata")).expect("metadata dir");
+    fs::write(
+        root.join("metadata/uninstalled.json"),
+        "invalid and never read",
+    )
+    .expect("catalog");
+    for (provider, launcher) in [("legendary", "Legendary"), ("heroic", "Heroic (Epic)")] {
+        let output = diskclean()
+            .arg("applications")
+            .arg(&root)
+            .args(["--provider", provider, "--json"])
+            .output()
+            .expect("run");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+        assert_eq!(report["applications"].as_array().expect("apps").len(), 1);
+        assert_eq!(report["applications"][0]["launcher"], launcher);
+        assert_eq!(report["applications"][0]["logical_bytes"], 222);
+        assert_eq!(report["applications"][0]["status"], "installed");
+        assert_eq!(report["issues"].as_array().expect("issues").len(), 1);
+    }
+    assert!(install.join("data.bin").exists());
+}

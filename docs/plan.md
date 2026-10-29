@@ -7,7 +7,7 @@ here so a fresh agent can recover context after a reset.
 Last updated: 2026-10-29.
 
 Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
-Next: Heroic/Legendary inventory, then the remaining providers and P2 ownership/leftovers;
+Next: GOG inventory (including Heroic), then Lutris, registry/packages and P2 ownership/leftovers;
 do not restart U3 checks as the next feature milestone. Outstanding release
 checks below remain separately tracked.
 
@@ -44,7 +44,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4 applications/games | In progress | Steam + Epic inventory, measured installation sizes, GUI/CLI; Heroic/Legendary next, other providers and leftovers remain |
+| Phase 4 applications/games | In progress | Steam/Epic/Legendary + Heroic Epic inventory, measured sizes, GUI/CLI; GOG next, other providers and leftovers remain |
 | Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -467,11 +467,14 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
 - [x] Localized Applications workspace with background search/cancel, virtualized
       card grid, grouped Steam components, cached search, details modal, Copy path
       and drill-down to Analyze; Ctrl+4.
-- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic`, worker
+- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic`, worker
       and mount-boundary options.
 - [x] Epic `.item` inventory: native Windows automatic location, explicit
       manifest directory, measured sizes, partial/missing/unknown states, GUI/CLI.
-- [ ] Next provider: Heroic/Legendary installed-game metadata (Linux first).
+- [x] Legendary and Heroic Epic installed-game records: native/Flatpak config
+      locations and explicit config folders, measured sizes and GUI/CLI sources.
+- [ ] Next provider: GOG inventory, including Heroic GOG. Heroic Amazon and
+      third-party installed records are not covered by the Epic backend.
 - [ ] Remaining providers: GOG/Lutris, Windows registry and Linux
       package inventories.
 - [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
@@ -557,6 +560,20 @@ cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Phase 4, Legendary/Heroic Epic): Added bounded offline parsing of
+  `installed.json` with per-record validation, ID matching and preservation of
+  valid neighbours. Common Legendary and Heroic (native/Flatpak) configs join
+  automatic discovery; explicit source folders use a typed provider selector
+  in core/GUI and `--provider legendary|heroic` in CLI. Cards retain the source
+  launcher and localized evidence. Only installed-game records are read, not
+  user credentials or account catalog metadata. Shared directories reuse scans;
+  verification-needed, preloaded or missing-flag records stay uncertain. Missing
+  folders do not imply disposable leftovers. No new dependencies. GOG/Amazon and
+  third-party Heroic records remain separate; next feature work is GOG inventory.
+  Verification: all 151 workspace tests (42 GUI), fmt, Linux/Windows all-targets
+  workspace clippy with -D warnings and locked Linux release build pass.
+  Interactive Windows provider validation remains open.
 
 - 2026-10-29 (Phase 4, Epic inventory): User accepted the card-grid direction;
   retained responsive cards and collapsed Steam components. Added bounded local

@@ -45,16 +45,16 @@ enum Command {
     Clean(CleanArgs),
     /// Find exact duplicate files. Read-only.
     Duplicates(DuplicatesArgs),
-    /// Inventory Steam/Epic games/applications and measure installation folders. Read-only.
+    /// Inventory launcher games/applications and measure installation folders. Read-only.
     Applications(ApplicationsArgs),
 }
 
 #[derive(Debug, Args)]
 struct ApplicationsArgs {
     /// Provider for an explicit path (Steam by default).
-    #[arg(long, value_parser = ["steam", "epic"], requires = "path")]
+    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic"], requires = "path")]
     provider: Option<String>,
-    /// Steam library or Epic Manifests folder; omit to search both native providers.
+    /// Steam library, Epic Manifests or Legendary config folder; omit for all sources.
     path: Option<PathBuf>,
     #[arg(long)]
     json: bool,
@@ -259,7 +259,12 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
     install_cancel_handler(control.clone());
     let report = diskclean_core::applications::discover_applications(
         roots.as_deref(),
-        args.provider.as_deref() == Some("epic"),
+        match args.provider.as_deref() {
+            Some("epic") => diskclean_core::applications::ApplicationSource::Epic,
+            Some("legendary") => diskclean_core::applications::ApplicationSource::Legendary,
+            Some("heroic") => diskclean_core::applications::ApplicationSource::Heroic,
+            _ => diskclean_core::applications::ApplicationSource::Steam,
+        },
         &ScanOptions {
             threads: args.threads.unwrap_or(0),
             cross_filesystems: args.cross_filesystems,

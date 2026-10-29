@@ -1,17 +1,18 @@
 # Applications and games
 
-Phase 4 is in progress. Steam and Epic Games Launcher inventory are implemented. Discovery is read-only and
-works offline; it never uninstalls games or creates cleanup selections.
+Phase 4 is in progress. Steam, Epic Games Launcher, Legendary and Heroic Epic
+inventory are implemented. Discovery is read-only and works offline; it never uninstalls games or creates cleanup selections.
 
 ## Usage
 
-In **Applications** (`Ctrl+4`), leave the root empty to inspect common native
-Linux/Flatpak and Windows Program Files Steam locations. Alternatively enter a
-Steam installation or SteamLibrary root (the folder containing `steamapps`).
+In **Applications** (`Ctrl+4`), leave the root empty to search common launcher
+locations. Alternatively select a provider and enter its source folder: Steam
+or SteamLibrary (containing `steamapps`), Epic `Manifests`, or Legendary config
+(containing `installed.json`, also used by Heroic Epic).
 Click **Find applications** (or **Refresh list** after a search). Library path
-controls are inside **Choose a source folder…**, with a Steam/Epic selector.
-An empty root searches common native locations for both providers. Epic is
-automatic on Windows; on Linux an explicit manifest directory is required. The previous inventory remains
+controls are inside **Choose a source folder…**, with a provider selector.
+An empty root searches all implemented sources. Epic is automatic on Windows;
+on Linux its `.item` directory must be explicit. The previous inventory remains
 visible while the background job runs; cancellation or a worker error preserves
 it. Results use a responsive card grid with size and installation status.
 Games/apps appear first, sorted by measured size. Recognizable local names for
@@ -28,6 +29,8 @@ search/sort results are cached between frames.
 ```bash
 cargo run -p diskclean-cli -- applications /path/to/Steam --json --threads 4
 cargo run -p diskclean-cli -- applications /path/to/Manifests --provider epic --json
+cargo run -p diskclean-cli -- applications /path/to/legendary --provider legendary --json
+cargo run -p diskclean-cli -- applications /path/to/heroic/legendaryConfig/legendary --provider heroic --json
 ```
 
 CLI supports Ctrl+C and `--cross-filesystems`. GUI uses the persisted worker and
@@ -62,10 +65,9 @@ is a later provider milestone.
 Select **Epic Games** in source settings and enter the directory containing
 `.item` files, normally `%ProgramData%/Epic/EpicGamesLauncher/Data/Manifests`
 on Windows. Explicit CLI paths default to Steam; `--provider epic` requires an
-explicit path. No-path discovery inspects both native providers. No Wine prefix
+explicit path. No-path discovery inspects all implemented sources. No Wine prefix
 search or Windows-to-Unix drive mapping is performed; foreign paths produce
-issues. Heroic's Legendary inventory is the next provider, not covered by this
-Epic `.item` implementation.
+issues. Heroic Epic uses the separate Legendary format below.
 
 `AppName`, `DisplayName`, `InstallLocation` and optional `AppVersionString` come
 from local JSON. A record is installed only when the directory exists and both
@@ -87,6 +89,54 @@ and Windows fixtures are cross-compiled; real Windows provider smoke is open.
 Format reference: Legendary's own
 [EGL manifest model](https://github.com/legendary-gl/legendary/blob/master/legendary/models/egl.py).
 Only field names/format were consulted; no Python implementation is imported.
+
+## Legendary and Heroic Epic
+
+Both providers read **only `installed.json`**, an object keyed by app ID. Choose
+**Legendary** or **Heroic (Epic)** and enter the folder containing this file.
+Heroic here covers its Epic backend; GOG, Amazon and third-party installed-game
+lists are not read. Account catalogs, `user.json`, executable/launch commands,
+save paths and authentication are never consulted or executed.
+
+Automatic locations:
+
+- Standalone Legendary: absolute `LEGENDARY_CONFIG_PATH`, otherwise
+  `$XDG_CONFIG_HOME/legendary`, otherwise `~/.config/legendary` (also on Windows,
+  following Legendary's own configuration layout).
+- Heroic: `$XDG_CONFIG_HOME/heroic/legendaryConfig/legendary` or
+  `~/.config/heroic/legendaryConfig/legendary` on Linux;
+  `%APPDATA%/heroic/legendaryConfig/legendary` on Windows.
+- Linux Flatpak Heroic:
+  `~/.var/app/com.heroicgameslauncher.hgl/config/heroic/legendaryConfig/legendary`.
+
+Relative environment overrides are ignored. Metadata paths retain link and
+mount checks. Reads are capped at 8 MiB and 20,000 records with the default JSON
+recursion limit. Duplicate top-level IDs and malformed JSON reject the file;
+individual invalid rows produce issues while valid neighbours survive. IDs must
+match `app_name`, titles must be nonempty and installation paths must be native,
+absolute, below a filesystem root and without parent traversal. Foreign Wine
+paths are rejected rather than translated.
+
+Names/versions are metadata evidence; sizes come from the existing scanner,
+not `install_size`. Directory measurements are reused within a source operation.
+Hardlinks, skipped entries and partial sizes use the shared scanner semantics.
+Installed requires an existing directory with `needs_verification` and
+`is_preloaded` explicitly false. Missing flags, verification or preload mean
+uncertain; an absent folder means missing. Records from different sources stay
+separate even when they name the same game; there is no summed space claim.
+DLC records may share the base game's installation directory.
+
+Fixtures cover mixed valid/invalid rows, ID mismatch, bad paths/types, bounds,
+duplicate IDs, shared directories/hardlinks, status flags, missing folders,
+links/mounts, cancellation, CLI source isolation and localized GUI source
+selection/details. Windows runtime provider testing remains open.
+
+Format references: Legendary's
+[installed-game model](https://github.com/legendary-gl/legendary/blob/master/legendary/models/game.py),
+[local configuration layout](https://github.com/legendary-gl/legendary/blob/master/legendary/lfs/lgndry.py),
+and Heroic's
+[Legendary paths](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/blob/main/src/backend/storeManagers/legendary/constants.ts).
+The implementation reads local metadata directly; no launcher code is imported.
 
 ## Boundaries and tests
 
@@ -118,8 +168,8 @@ The parser here is implemented locally without importing another parser.
 
 ## Remaining Phase 4 work
 
-Next: Heroic/Legendary installed-game metadata. GOG, Lutris, Windows registry
-and Linux package discovery remain; related
+Next: GOG inventory including Heroic GOG. Lutris, Heroic Amazon/third-party,
+Windows registry and Linux package discovery remain; related
 folder ownership; P1 category totals; and P2 explained leftovers with explicit
 review through the audited trash pipeline. No missing-manifest heuristic marks
 saves or user data disposable. Uninstall actions remain recommendation-only.

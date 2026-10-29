@@ -1,4 +1,4 @@
-//! Read-only Steam and Epic application inventory.
+//! Read-only launcher application inventory.
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -322,35 +322,156 @@ pub fn discover_epic(
     Ok(report)
 }
 
-/// Inventory the selected provider, or all native providers for automatic search.
-/// Explicit roots are scoped to one provider and never mixed with profile probes.
+/// Source format for explicit roots. Automatic discovery searches all sources.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ApplicationSource {
+    #[default]
+    Steam,
+    Epic,
+    Legendary,
+    Heroic,
+}
+
+/// Legendary config directories, including Heroic's Epic backend. Account-wide
+/// catalogs and user.json are never read. Heroic GOG/Amazon are not included.
+pub fn discover_legendary(
+    roots: &[PathBuf],
+    heroic: bool,
+    options: &ScanOptions,
+    control: &ScanControl,
+) -> Result<ApplicationsReport, ScanError> {
+    if control.is_cancelled() {
+        return Err(ScanError::Cancelled);
+    }
+    if options.follow_symlinks {
+        return Err(ScanError::FollowSymlinksUnsupported);
+    }
+    let mounts = MountPoints::read().map_err(|source| ScanError::Root {
+        path: PathBuf::from("/"),
+        source,
+    })?;
+    let mut report = ApplicationsReport::default();
+    let mut sizes = HashMap::new();
+    let mut visited = HashSet::new();
+    for root in roots {
+        if control.is_cancelled() {
+            return Err(ScanError::Cancelled);
+        }
+        let root = std::path::absolute(root).map_err(|source| ScanError::Root {
+            path: root.clone(),
+            source,
+        })?;
+        let path = root.join("installed.json");
+        let installed = match permitted(&root, &path, options, &mounts).and_then(|()| {
+            let meta = metadata(&path)?;
+            if meta.ino != 0 && !visited.insert((meta.dev, meta.ino)) {
+                return Ok(None);
+            }
+            diskclean_platform::legendary::read_installed(&path).map(Some)
+        }) {
+            Ok(Some(records)) => records,
+            Ok(None) => continue,
+            Err(error) => {
+                report.issues.push(ScanIssue::from_io(
+                    path,
+                    "read Legendary installations",
+                    &error,
+                ));
+                continue;
+            }
+        };
+        for id in installed.invalid_ids {
+            report.issues.push(ScanIssue::new(
+                path.clone(),
+                crate::IssueKind::Other,
+                format!("invalid Legendary installed-game record: {id}"),
+            ));
+        }
+        for game in installed.games {
+            if control.is_cancelled() {
+                return Err(ScanError::Cancelled);
+            }
+            let complete =
+                game.needs_verification == Some(false) && game.is_preloaded == Some(false);
+            let mut application = Application {
+                id: game.app_name,
+                name: game.title,
+                launcher: if heroic { "Heroic (Epic)" } else { "Legendary" }.into(),
+                status: InstallationStatus::Unknown,
+                install_path: game.install_path,
+                manifest_path: path.clone(),
+                allocated_bytes: None,
+                logical_bytes: None,
+                size_complete: false,
+                build_id: game.version,
+                last_played_unix: None,
+            };
+            measure_installation(
+                &mut application,
+                complete,
+                &root,
+                options,
+                control,
+                &mounts,
+                &mut sizes,
+                &mut report.issues,
+            )?;
+            report.applications.push(application);
+        }
+    }
+    if control.is_cancelled() {
+        return Err(ScanError::Cancelled);
+    }
+    report.applications.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then(a.id.cmp(&b.id))
+            .then(a.install_path.cmp(&b.install_path))
+    });
+    Ok(report)
+}
+
+/// Explicit roots never mix with profile probes. With no roots all native
+/// providers are searched; their source evidence is retained in separate records.
 pub fn discover_applications(
     roots: Option<&[PathBuf]>,
-    epic: bool,
+    source: ApplicationSource,
     options: &ScanOptions,
     control: &ScanControl,
 ) -> Result<ApplicationsReport, ScanError> {
     if let Some(roots) = roots {
-        return if epic {
-            discover_epic(roots, options, control)
-        } else {
-            discover_steam(roots, options, control)
+        return match source {
+            ApplicationSource::Steam => discover_steam(roots, options, control),
+            ApplicationSource::Epic => discover_epic(roots, options, control),
+            ApplicationSource::Legendary | ApplicationSource::Heroic => {
+                discover_legendary(roots, source == ApplicationSource::Heroic, options, control)
+            }
         };
     }
-    let existing = |roots: Vec<PathBuf>| {
-        roots
+    let mut report = ApplicationsReport::default();
+    for (source, roots) in [
+        (ApplicationSource::Steam, steam::default_roots()),
+        (
+            ApplicationSource::Epic,
+            diskclean_platform::epic::default_roots(),
+        ),
+        (
+            ApplicationSource::Legendary,
+            diskclean_platform::legendary::default_roots(),
+        ),
+        (
+            ApplicationSource::Heroic,
+            diskclean_platform::legendary::heroic_roots(),
+        ),
+    ] {
+        let roots: Vec<_> = roots
             .into_iter()
             .filter(|path| path.symlink_metadata().is_ok())
-            .collect::<Vec<_>>()
-    };
-    let mut report = discover_steam(&existing(steam::default_roots()), options, control)?;
-    let other = discover_epic(
-        &existing(diskclean_platform::epic::default_roots()),
-        options,
-        control,
-    )?;
-    report.applications.extend(other.applications);
-    report.issues.extend(other.issues);
+            .collect();
+        let other = discover_applications(Some(&roots), source, options, control)?;
+        report.applications.extend(other.applications);
+        report.issues.extend(other.issues);
+    }
     Ok(report)
 }
 
@@ -576,6 +697,162 @@ mod tests {
         );
     }
 
+    fn legendary_fixture(root: &Path, install: &Path) {
+        fs::create_dir_all(root).expect("config");
+        let good = serde_json::json!({"app_name":"installed", "title":"A Game", "install_path":install, "version":"v2", "needs_verification":false, "is_preloaded":false, "install_size":999999});
+        let mut rows = serde_json::json!({"installed":good, "broken": {"title":"broken"}});
+        for (id, title, flag) in [
+            ("verify", "B Verify", "needs_verification"),
+            ("preload", "C Preload", "is_preloaded"),
+        ] {
+            let mut game = good.clone();
+            game["app_name"] = id.into();
+            game["title"] = title.into();
+            game[flag] = true.into();
+            rows[id] = game;
+        }
+        let mut missing = good.clone();
+        missing["app_name"] = "missing".into();
+        missing["title"] = "D Missing".into();
+        missing["install_path"] = install.join("absent").to_string_lossy().as_ref().into();
+        rows["missing"] = missing;
+        let mut uncertain = good;
+        uncertain["app_name"] = "unknown".into();
+        uncertain["title"] = "E Unknown".into();
+        uncertain
+            .as_object_mut()
+            .expect("object")
+            .remove("is_preloaded");
+        rows["unknown"] = uncertain;
+        fs::write(root.join("installed.json"), rows.to_string()).expect("metadata");
+    }
+
+    #[test]
+    fn legendary_shared_sizes_status_evidence_invalid_rows_and_cancel() {
+        let temp = tempfile::tempdir().expect("temp");
+        let root = temp.path().join("Config");
+        let install = temp.path().join("Game");
+        fs::create_dir_all(&install).expect("game");
+        fs::write(install.join("data"), [0; 111]).expect("data");
+        fs::hard_link(install.join("data"), install.join("alias")).expect("hardlink");
+        legendary_fixture(&root, &install);
+        for source in [ApplicationSource::Legendary, ApplicationSource::Heroic] {
+            let report = discover_applications(
+                Some(&[root.clone(), root.clone()]),
+                source,
+                &ScanOptions::default(),
+                &ScanControl::new(),
+            )
+            .expect("report");
+            assert_eq!(report.applications.len(), 5);
+            assert_eq!(report.issues.len(), 2); // invalid row and missing directory
+            let installed = &report.applications[0];
+            assert_eq!(installed.status, InstallationStatus::Installed);
+            assert_eq!(installed.logical_bytes, Some(111));
+            assert_eq!(installed.build_id.as_deref(), Some("v2"));
+            assert_eq!(installed.manifest_path, root.join("installed.json"));
+            assert_eq!(
+                installed.launcher,
+                if source == ApplicationSource::Heroic {
+                    "Heroic (Epic)"
+                } else {
+                    "Legendary"
+                }
+            );
+            assert!(installed.size_complete);
+            for index in [1, 2, 4] {
+                assert_eq!(
+                    report.applications[index].status,
+                    InstallationStatus::Unknown
+                );
+                assert_eq!(
+                    report.applications[index].allocated_bytes,
+                    installed.allocated_bytes
+                );
+            }
+            assert_eq!(report.applications[3].status, InstallationStatus::Missing);
+            assert_eq!(report.applications[3].allocated_bytes, None);
+        }
+        let partial = discover_legendary(
+            std::slice::from_ref(&root),
+            false,
+            &ScanOptions {
+                max_depth: Some(0),
+                ..Default::default()
+            },
+            &ScanControl::new(),
+        )
+        .expect("partial");
+        assert!(!partial.applications[0].size_complete);
+        let control = ScanControl::new();
+        control.cancel();
+        assert!(matches!(
+            discover_legendary(&[root], false, &ScanOptions::default(), &control),
+            Err(ScanError::Cancelled)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legendary_rejects_linked_metadata_and_installation() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().expect("temp");
+        let root = temp.path().join("Config");
+        let real = temp.path().join("Real");
+        let linked = temp.path().join("Linked");
+        fs::create_dir_all(&real).expect("real");
+        symlink(&real, &linked).expect("link");
+        legendary_fixture(&root, &linked);
+        let report = discover_legendary(
+            std::slice::from_ref(&root),
+            false,
+            &ScanOptions::default(),
+            &ScanControl::new(),
+        )
+        .expect("report");
+        assert!(report.applications.iter().all(
+            |app| app.allocated_bytes.is_none() && app.status != InstallationStatus::Installed
+        ));
+        let alias = temp.path().join("Alias");
+        fs::create_dir_all(&alias).expect("alias");
+        symlink(root.join("installed.json"), alias.join("installed.json")).expect("metadata link");
+        let report = discover_legendary(
+            &[alias],
+            false,
+            &ScanOptions::default(),
+            &ScanControl::new(),
+        )
+        .expect("report");
+        assert!(report.applications.is_empty());
+        assert_eq!(report.issues.len(), 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn legendary_installations_cannot_cross_mounts_by_default() {
+        let temp = tempfile::tempdir().expect("temp");
+        legendary_fixture(temp.path(), Path::new("/proc"));
+        let report = discover_legendary(
+            &[temp.path().into()],
+            false,
+            &ScanOptions::default(),
+            &ScanControl::new(),
+        )
+        .expect("report");
+        assert!(
+            report
+                .applications
+                .iter()
+                .all(|app| app.allocated_bytes.is_none())
+        );
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.message.contains("filesystem boundary"))
+        );
+    }
+
     fn epic_fixture(root: &Path, file: &str, install: &Path, incomplete: bool) {
         fs::create_dir_all(root).expect("manifests");
         fs::write(
@@ -603,7 +880,7 @@ mod tests {
         fs::write(root.join("bad.item"), "broken").expect("bad");
         let report = discover_applications(
             Some(&[root.clone(), root]),
-            true,
+            ApplicationSource::Epic,
             &ScanOptions::default(),
             &ScanControl::new(),
         )
