@@ -294,7 +294,7 @@ impl DiskCleanupApp {
                         components::shortcut_row(
                             ui,
                             palette,
-                            "Ctrl+1 / 2 / 3",
+                            "Ctrl+1 / 2 / 3 / 4",
                             self.text(Key::ShortcutWorkspaces),
                         );
                         components::shortcut_row(

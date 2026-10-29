@@ -258,3 +258,26 @@ fn thread_options_apply_to_scans_and_duplicates_and_reject_excessive_counts() {
             .stderr(predicate::str::contains("thread count from 0 to 32"));
     }
 }
+
+#[test]
+fn applications_json_measures_steam_installation_and_reports_bad_metadata() {
+    let temp = tempdir().expect("temp");
+    let apps = temp.path().join("steamapps");
+    write_file(&apps.join("common/Test Game/data.bin"), 123);
+    fs::write(apps.join("appmanifest_10.acf"), r#""AppState" { "appid" "10" "name" "Test Game" "installdir" "Test Game" "StateFlags" "4" "SizeOnDisk" "99999999" }"#).expect("manifest");
+    fs::write(apps.join("appmanifest_11.acf"), "malformed").expect("bad manifest");
+    let output = diskclean()
+        .arg("applications")
+        .arg(temp.path())
+        .args(["--json", "--threads", "1"])
+        .output()
+        .expect("run");
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(report["applications"].as_array().expect("apps").len(), 1);
+    assert_eq!(report["applications"][0]["name"], "Test Game");
+    assert_eq!(report["applications"][0]["logical_bytes"], 123);
+    assert_eq!(report["applications"][0]["status"], "installed");
+    assert_eq!(report["issues"].as_array().expect("issues").len(), 1);
+    assert!(apps.join("common/Test Game/data.bin").exists());
+}

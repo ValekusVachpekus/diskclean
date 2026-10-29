@@ -27,6 +27,7 @@ pub(crate) enum Workspace {
     Analyze,
     Cleanup,
     Duplicates,
+    Applications,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +125,7 @@ pub(crate) struct DiskCleanupApp {
     pub(crate) workspace: Workspace,
     pub(crate) cleanup: CleanupWorkspace,
     pub(crate) duplicates: DuplicateWorkspace,
+    pub(crate) applications: crate::views::applications::ApplicationsWorkspace,
     pub(crate) path_input: String,
     pub(crate) volumes: Vec<VolumeInfo>,
     pub(crate) cache: Vec<CachedScan>,
@@ -175,6 +177,7 @@ impl DiskCleanupApp {
             workspace: Workspace::Analyze,
             cleanup: CleanupWorkspace::default(),
             duplicates: DuplicateWorkspace::default(),
+            applications: Default::default(),
             path_input: initial.display().to_string(),
             volumes: list_volumes(),
             cache: Vec::new(),
@@ -218,6 +221,7 @@ impl DiskCleanupApp {
             workspace: Workspace::Analyze,
             cleanup: CleanupWorkspace::default(),
             duplicates: DuplicateWorkspace::default(),
+            applications: Default::default(),
             path_input,
             volumes: Vec::new(),
             cache: Vec::new(),
@@ -537,6 +541,7 @@ impl DiskCleanupApp {
             || self.help_open
             || self.cleanup.confirm_open
             || self.duplicates.confirm_open
+            || (self.workspace == Workspace::Applications && self.applications.selected.is_some())
             || (!self.wide && self.narrow_inspector && self.workspace == Workspace::Analyze)
         {
             return;
@@ -578,6 +583,9 @@ impl DiskCleanupApp {
             if input.modifiers.command && input.key_pressed(Key::Num3) {
                 workspace = Some(Workspace::Duplicates);
             }
+            if input.modifiers.command && input.key_pressed(Key::Num4) {
+                workspace = Some(Workspace::Applications);
+            }
             if input.key_pressed(Key::Escape) {
                 escape = true;
             }
@@ -616,6 +624,7 @@ impl DiskCleanupApp {
                 Workspace::Analyze => self.start_scan(),
                 Workspace::Cleanup => self.start_cleanup_discovery(),
                 Workspace::Duplicates => self.start_duplicate_search(),
+                Workspace::Applications => self.start_applications(),
             }
         }
         if settings {
@@ -627,6 +636,7 @@ impl DiskCleanupApp {
 
         let keyboard_input = context.egui_wants_keyboard_input();
         if escape && !keyboard_input {
+            self.cancel_applications();
             if self.cleanup.is_applying() || self.duplicates.is_applying() {
                 self.cleanup.apply_job.cancel();
                 self.duplicates.apply_job.cancel();
@@ -712,6 +722,7 @@ impl DiskCleanupApp {
         self.poll_scan(&context);
         self.poll_cleanup(&context);
         self.poll_duplicates(&context);
+        self.poll_applications(&context);
 
         let compact_navigation = ui.available_width() < tokens::NAV_COMPACT_BREAKPOINT;
         let navigation_width = if compact_navigation {

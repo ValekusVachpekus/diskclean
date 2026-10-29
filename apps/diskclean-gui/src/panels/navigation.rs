@@ -304,6 +304,11 @@ impl DiskCleanupApp {
                 icons::DUPLICATES,
                 self.text(Key::Duplicates),
             ),
+            (
+                Workspace::Applications,
+                icons::APPS,
+                self.text(Key::Applications),
+            ),
         ] {
             if components::nav_item(
                 ui,
@@ -320,18 +325,6 @@ impl DiskCleanupApp {
                 self.workspace = workspace;
             }
         }
-
-        let applications = components::nav_item(
-            ui,
-            palette,
-            width,
-            icons::APPS,
-            self.text(Key::Applications),
-            Some(self.text(Key::Soon)),
-            false,
-            false,
-        );
-        applications.on_hover_text(self.text(Key::Soon));
     }
 
     fn navigation_rail(&mut self, ui: &mut egui::Ui) {
@@ -340,6 +333,7 @@ impl DiskCleanupApp {
             (Workspace::Analyze, icons::CHART, Key::Analyze),
             (Workspace::Cleanup, icons::BROOM, Key::Cleanup),
             (Workspace::Duplicates, icons::DUPLICATES, Key::Duplicates),
+            (Workspace::Applications, icons::APPS, Key::Applications),
         ] {
             let selected = self.workspace == workspace;
             let response = ui.add(

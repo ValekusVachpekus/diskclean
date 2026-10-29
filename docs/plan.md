@@ -4,7 +4,12 @@ Status: **active**. This file is the durable working plan. Update the status
 table and the relevant milestone notes whenever work lands. `AGENTS.md` links
 here so a fresh agent can recover context after a reset.
 
-Last updated: 2026-10-28.
+Last updated: 2026-10-29.
+
+Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
+Continue with the remaining inventory providers and P2 ownership/leftovers;
+do not restart U3 checks as the next feature milestone. Outstanding release
+checks below remain separately tracked.
 
 ## Stabilization after the 2026-10-28 review
 
@@ -39,7 +44,8 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4+ | Not started | applications/games, similar media, packaging |
+| Phase 4 applications/games | In progress | Steam inventory, measured installation sizes, GUI/CLI; other providers and leftovers remain |
+| Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
 
@@ -451,7 +457,26 @@ backend covers success/error/cancel/changed-file; system commands never run.
 ### Phase 4 — Applications and games
 
 Includes the approved P2 leftovers workflow and supplies ownership facts for
-P1 category summaries above. Both additions remain planned.
+P1 category summaries above. P1/P2 acceptance criteria remain open.
+
+- [x] First provider: Steam native/Flatpak/common Windows locations and explicit
+      library root; legacy/current libraryfolders.vdf and appmanifest metadata.
+- [x] Measure installation folders using the existing read-only scanner; show
+      installed, missing-folder and unknown states, build ID and optional last
+      played metadata. Missing folders do not prove an uninstall.
+- [x] Localized Applications workspace with background search/cancel, virtualized
+      list, selection details, Copy path and drill-down to Analyze; Ctrl+4.
+- [x] CLI `applications [STEAM_ROOT] --json`, worker and mount-boundary options.
+- [ ] Remaining providers: Epic/GOG/Heroic/Lutris, Windows registry and Linux
+      package inventories.
+- [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
+- [ ] Interactive Windows provider smoke.
+
+Installation sizes exclude separate saves, shader caches and Proton prefixes.
+Shared installation directories may belong to multiple records; no aggregate
+sum is shown. Symlinks/reparse points and mount crossings are rejected by
+default; metadata input has size/depth/entry bounds. Inventory does not create
+cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 
 - Steam (libraryfolders.vdf, appmanifest), Epic, GOG, Heroic, Lutris; Windows
   Uninstall registry; Linux dpkg/pacman/flatpak/snap.
@@ -527,6 +552,43 @@ P1 category summaries above. Both additions remain planned.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Applications card layout): Replaced the wide centered list with
+  a responsive grid of fixed-height cards (240 px minimum target width), left
+  aligned two-line titles, prominent sizes and explicit installation status.
+  Games/applications come first; recognizable Proton/runtime/redistributable
+  names form a collapsed Steam components group (presentation only, no cleanup
+  policy). Largest measured installations appear first within each group.
+  Added cached name/path search, automatic expansion of matching components,
+  compact refresh/source controls and collapsible library settings. Selection
+  opens a viewport-bounded details modal, preserving the grid's scroll position;
+  Escape and Close dismiss it and Analyze opens the existing scanner. Only
+  visible card rows are rendered; grouping/sorting are cached between frames.
+  EN/RU dark/light geometry checks cover 480/760/1100 px grids, grouping,
+  search, modal actions and a scrolling 100k-record inventory. Verification:
+  all 40 GUI tests, fmt, GUI all-targets clippy -D warnings, Windows GUI
+  cross-check and locked Linux release GUI build pass.
+
+
+- 2026-10-29 (Phase 4, first Steam milestone): Added bounded read-only text
+  KeyValues parsing in platform and Steam discovery/size measurement in core.
+  Both library-file locations and numbered legacy/current entries are supported.
+  Conflicting manifests share a directory measurement; hardlinks retain scanner
+  accounting. Missing/invalid/linked paths produce issues rather than inferred
+  disposable leftovers. GUI inventory runs off-thread, supports cancellation,
+  preserves old results, virtualizes large lists and links to Analyze. CLI
+  exposes the same report as JSON. EN/RU details explain metadata ownership,
+  installation-only size scope and shared files. Fixtures cover malformed and
+  oversized metadata, nesting, path escapes, ID mismatch, multiple libraries,
+  missing/uncertain installs, shared paths, hardlinks, links and cancellation;
+  GUI covers both languages/themes, narrow long-text layout, 100k records and
+  preservation after cancellation/worker failure. Other providers, P1 category
+  totals, P2 leftovers and interactive Windows smoke remain open.
+  Verification: fmt, Linux workspace all-targets clippy -D warnings, all 137
+  workspace tests (cleanup 40, CLI 13, core 23, parallel scan 3, scan integration
+  9, GUI 39, platform 6, rules 4), Windows all-targets cross-clippy and locked
+  Linux workspace release build pass.
+
 
 - 2026-10-28 (approved product priorities): Recorded the user's selected
   additions: P1 understandable space categories with drill-down, P2 application/

@@ -21,6 +21,7 @@ impl DiskCleanupApp {
             Workspace::Analyze => self.analyze_workspace(ui),
             Workspace::Cleanup => self.cleanup_workspace(ui),
             Workspace::Duplicates => self.duplicates_workspace(ui),
+            Workspace::Applications => self.applications_workspace(ui),
         }
     }
 

@@ -7,6 +7,7 @@
 
 pub mod file_meta;
 pub mod mounts;
+pub mod steam;
 pub mod user_dirs;
 pub mod volumes;
 pub use mounts::MountPoints;

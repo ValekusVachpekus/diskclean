@@ -639,7 +639,7 @@ fn cleanup_commands_filter_does_not_claim_there_are_no_recommendations() {
 }
 
 #[test]
-fn workspace_shortcuts_switch_between_analyze_cleanup_and_duplicates() {
+fn workspace_shortcuts_switch_between_all_workspaces() {
     let mut harness = harness(
         test_app(english_settings(), false),
         Vec2::new(1280.0, 820.0),
@@ -652,6 +652,10 @@ fn workspace_shortcuts_switch_between_analyze_cleanup_and_duplicates() {
     harness.key_press_modifiers(Modifiers::COMMAND, Key::Num3);
     harness.run();
     assert_eq!(harness.state().workspace, Workspace::Duplicates);
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Num4);
+    harness.run();
+    assert_eq!(harness.state().workspace, Workspace::Applications);
 
     harness.key_press_modifiers(Modifiers::COMMAND, Key::Num1);
     harness.run();
@@ -1326,5 +1330,184 @@ fn settings_select_worker_count_in_both_languages() {
             .click();
         harness.run();
         assert_eq!(harness.state().settings.worker_threads, 0);
+    }
+}
+
+fn applications_ui_fixture() -> diskclean_core::applications::ApplicationsReport {
+    use diskclean_core::applications::{Application, ApplicationsReport, InstallationStatus};
+    ApplicationsReport {
+        applications: vec![Application {
+            id: "10".into(),
+            name: "Test Steam Game".into(),
+            launcher: "Steam".into(),
+            status: InstallationStatus::Installed,
+            install_path: "/virtual/Steam/steamapps/common/Test Game".into(),
+            manifest_path: "/virtual/Steam/steamapps/appmanifest_10.acf".into(),
+            allocated_bytes: Some(GIB),
+            logical_bytes: Some(GIB),
+            size_complete: true,
+            build_id: Some("123".into()),
+            last_played_unix: None,
+        }],
+        issues: vec![],
+    }
+}
+
+#[test]
+fn applications_navigation_selection_and_localized_details() {
+    use crate::i18n::Key;
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = theme;
+            app.applications.report = Some(applications_ui_fixture());
+            let mut harness = harness(app, Vec2::new(900.0, 600.0));
+            harness
+                .get_by_label(language.text(Key::Applications))
+                .click();
+            harness.run();
+            assert_eq!(harness.state().workspace, Workspace::Applications);
+            harness.get_by_label("Test Steam Game").click();
+            harness.run();
+            assert_eq!(harness.state().applications.selected, Some(0));
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::SteamOwnership))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::ApplicationDataScope))
+                    .is_some()
+            );
+            assert!(harness.state().cleanup.selected.is_empty());
+            assert!(harness.state().duplicates.selected.is_empty());
+            harness.get_by_label(language.text(Key::CopyPath)).click();
+            harness.run();
+            assert_eq!(harness.state().workspace, Workspace::Applications);
+            harness.key_press(egui::Key::Escape);
+            harness.run();
+            assert_eq!(harness.state().applications.selected, None);
+        }
+    }
+}
+
+#[test]
+fn applications_large_inventory_virtualizes_and_keeps_long_text_bounded() {
+    use crate::i18n::Key;
+    for language in [Language::English, Language::Russian] {
+        let mut app = test_app(english_settings(), false);
+        app.settings.language = language;
+        app.workspace = Workspace::Applications;
+        let mut report = applications_ui_fixture();
+        report.applications = (0..100_000)
+            .map(|_| report.applications[0].clone())
+            .collect();
+        report.applications[0].name = "очень длинное имя ".repeat(100);
+        report.applications[0].install_path = format!("/{}", "длинный-путь/".repeat(80)).into();
+        app.applications.report = Some(report);
+        app.applications.selected = Some(0);
+        let mut harness = Harness::builder()
+            .with_size(Vec2::new(600.0, 600.0))
+            .with_accessibility_check(false)
+            .with_context_setup(theme::install_fonts)
+            .build_ui_state(
+                |ui, app: &mut DiskCleanupApp| app.applications_workspace(ui),
+                app,
+            );
+        harness.run();
+        for key in [Key::CopyPath, Key::Analyze, Key::Close] {
+            let rect = harness.get_by_label(language.text(key)).rect();
+            assert!(
+                rect.left() >= 0.0 && rect.right() <= 600.0 && rect.bottom() <= 600.0,
+                "{key:?}: {rect:?}"
+            );
+        }
+        harness.get_by_label(language.text(Key::Close)).click();
+        harness.run();
+        let visible = harness.query_all_by_label("Test Steam Game").count();
+        assert!(visible > 0 && visible < 40, "rendered {visible} cards");
+        harness.hover_at(egui::pos2(300.0, 500.0));
+        harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -2600.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+            modifiers: Modifiers::NONE,
+        });
+        harness.run_steps(12);
+        let visible = harness.query_all_by_label("Test Steam Game").count();
+        assert!(
+            visible > 0 && visible < 40,
+            "rendered {visible} cards after scrolling"
+        );
+    }
+}
+
+#[test]
+fn application_cards_form_responsive_groups_and_search_components() {
+    use crate::i18n::Key;
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            for width in [480.0, 760.0, 1100.0] {
+                let mut app = test_app(english_settings(), false);
+                app.settings.language = language;
+                app.settings.theme = theme;
+                let mut report = applications_ui_fixture();
+                report.applications[0].name = "Portal 2".into();
+                let mut second = report.applications[0].clone();
+                second.name = "Euro Truck Simulator 2".into();
+                second.allocated_bytes = Some(GIB / 2);
+                let mut runtime = second.clone();
+                runtime.name = "Proton 9.0".into();
+                report.applications.extend([second, runtime]);
+                app.applications.report = Some(report);
+                let mut harness = Harness::builder()
+                    .with_size(Vec2::new(width, 650.0))
+                    .with_accessibility_check(false)
+                    .with_context_setup(move |ctx| {
+                        theme::install_fonts(ctx);
+                        theme::apply(ctx, theme);
+                    })
+                    .build_ui_state(
+                        |ui, app: &mut DiskCleanupApp| app.applications_workspace(ui),
+                        app,
+                    );
+                harness.run();
+                let first = harness.get_by_label("Portal 2").rect();
+                let second = harness.get_by_label("Euro Truck Simulator 2").rect();
+                for rect in [first, second] {
+                    assert!(
+                        rect.left() >= 0.0 && rect.right() <= width && rect.width() >= 230.0,
+                        "{rect:?} at {width}"
+                    );
+                }
+                if width >= 760.0 {
+                    assert!((first.top() - second.top()).abs() < 1.0);
+                    assert!(first.right() < second.left());
+                } else {
+                    assert!(first.bottom() < second.top());
+                }
+                assert!(harness.query_by_label("Proton 9.0").is_none());
+                harness
+                    .get_by_label_contains(language.text(Key::ApplicationComponents))
+                    .click();
+                harness.run();
+                assert!(harness.state().applications.show_components);
+                assert!(harness.query_by_label("Proton 9.0").is_some());
+                harness.state_mut().applications.search = "Proton".into();
+                harness.state_mut().applications.show_components = false;
+                harness.run();
+                assert!(harness.query_by_label("Portal 2").is_none());
+                assert!(harness.query_by_label("Proton 9.0").is_some());
+                harness.get_by_label("Proton 9.0").click();
+                harness.run();
+                assert_eq!(harness.state().applications.selected, Some(2));
+                harness.get_by_label(language.text(Key::Close)).click();
+                harness.run();
+                assert_eq!(harness.state().applications.selected, None);
+            }
+        }
     }
 }

@@ -18,11 +18,27 @@ explanation and a risk level.
 - [x] Linux release build verified
 - [ ] Interactive Windows runtime test (the Windows target compiles and passes
       clippy)
-- [ ] Games/applications detection
+- [x] Steam games/applications inventory with measured sizes (GUI + CLI)
+- [ ] Other launchers, packages and explained application leftovers
 - [ ] Similar photos/videos
 - [ ] Packaging
 
 ## Features
+
+### Applications and games (Steam)
+
+Open **Applications** (`Ctrl+4`) to find Steam libraries in common locations,
+or enter a Steam/SteamLibrary folder. Search measures installation sizes in the
+background, supports cancellation and opens individual games in Analyze.
+Installation status and metadata ownership are explained in English/Russian.
+Separate saves, Proton data and shader caches are outside these sizes; shared
+files mean per-app sizes must not be added together. Other launchers and
+leftover cleanup are planned. [Scope and safety](docs/applications.md).
+
+```bash
+cargo run -p diskclean-cli -- applications /path/to/Steam --json
+```
+
 
 ### Analyze
 
@@ -35,7 +51,7 @@ explanation and a risk level.
 - Name, type, and minimum-size filters with removable chips.
 - In-memory cache of the three most recent scans.
 - Responsive layout down to 900x600 windows.
-- Keyboard shortcuts: `Ctrl+1/2/3` workspaces, `Ctrl+R`/`F5` rescan, `Ctrl+F`
+- Keyboard shortcuts: `Ctrl+1/2/3/4` workspaces, `Ctrl+R`/`F5` rescan, `Ctrl+F`
   search, `Enter` open, arrows navigate, `Backspace` up, `Esc` close.
 
 ### Safe cleanup

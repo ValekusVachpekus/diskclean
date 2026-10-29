@@ -6,6 +6,7 @@
 //! scans and exposes a compact in-memory tree plus summaries suitable for a
 //! treemap, tables, and JSON output.
 
+pub mod applications;
 pub mod duplicates;
 pub mod error;
 pub mod format;

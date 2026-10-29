@@ -123,6 +123,10 @@ exercised at 125% and 200% pixels-per-point in headless tests.
   cards, safe-select, review basket.
 - **Duplicates** (`Ctrl+3`): minimum-size search, progress/cancel, group cards,
   keeper selection, review basket.
+- **Applications** (`Ctrl+4`): Steam root/autodetection, background inventory,
+  responsive virtualized card grid, separate collapsed Steam components, cached
+  search by name/path and size ordering. Cards open ownership/installation
+  details in a bounded modal with Analyze drill-down.
 
 Navigation shows only implemented workspaces. Do not add disabled placeholders
 for future phases unless they explain what is coming and why they are disabled.
@@ -163,6 +167,7 @@ for future phases unless they explain what is coming and why they are disabled.
 | `Ctrl+1` | Analyze |
 | `Ctrl+2` | Cleanup |
 | `Ctrl+3` | Duplicates |
+| `Ctrl+4` | Applications |
 | `Ctrl+R`, `F5` | Rescan the current root |
 | `Ctrl+F` | Focus search |
 | `Enter` | Open the selected item |

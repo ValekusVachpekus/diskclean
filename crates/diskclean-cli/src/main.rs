@@ -45,6 +45,21 @@ enum Command {
     Clean(CleanArgs),
     /// Find exact duplicate files. Read-only.
     Duplicates(DuplicatesArgs),
+    /// Inventory Steam games/applications and measure installation folders. Read-only.
+    Applications(ApplicationsArgs),
+}
+
+#[derive(Debug, Args)]
+struct ApplicationsArgs {
+    /// Steam installation or library root; omit to search common locations.
+    path: Option<PathBuf>,
+    #[arg(long)]
+    json: bool,
+    /// Follow libraries and game content across mount boundaries.
+    #[arg(long)]
+    cross_filesystems: bool,
+    #[arg(long, value_parser = parse_threads)]
+    threads: Option<usize>,
 }
 
 #[derive(Debug, Args)]
@@ -231,7 +246,50 @@ fn run() -> Result<()> {
         Command::Recommend(args) => run_recommend(args),
         Command::Clean(args) => run_clean(args),
         Command::Duplicates(args) => run_duplicates(args),
+        Command::Applications(args) => run_applications(args),
     }
+}
+
+fn run_applications(args: ApplicationsArgs) -> Result<()> {
+    let roots = args.path.map_or_else(
+        || {
+            diskclean_platform::steam::default_roots()
+                .into_iter()
+                .filter(|path| path.symlink_metadata().is_ok())
+                .collect()
+        },
+        |path| vec![path],
+    );
+    let control = ScanControl::new();
+    install_cancel_handler(control.clone());
+    let report = diskclean_core::applications::discover_steam(
+        &roots,
+        &ScanOptions {
+            threads: args.threads.unwrap_or(0),
+            cross_filesystems: args.cross_filesystems,
+            ..Default::default()
+        },
+        &control,
+    )?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        for app in &report.applications {
+            println!(
+                "Steam · {} · {:?} · {}\n  {}",
+                app.name,
+                app.status,
+                app.allocated_bytes
+                    .map(format_bytes)
+                    .unwrap_or_else(|| "unknown size".into()),
+                app.install_path.display()
+            );
+        }
+        for issue in &report.issues {
+            eprintln!("{}: {}", issue.path.display(), issue.message);
+        }
+    }
+    Ok(())
 }
 
 fn run_scan(args: ScanArgs) -> Result<()> {

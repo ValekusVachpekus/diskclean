@@ -82,6 +82,7 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -p diskclean-core --example synthetic_scan --release
+cargo run -p diskclean-cli -- applications /path/to/Steam --json
 cargo run -p diskclean-cli -- volumes
 cargo run -p diskclean-cli -- scan . --json
 cargo run -p diskclean-cli -- scan / --json --top 50 --exclude /proc --exclude /sys
@@ -200,8 +201,9 @@ Verification on 2026-10-27: fmt, clippy with `-D warnings`, all workspace tests,
 and the Windows target check pass. Test totals: cleanup 26, CLI 11, core 14,
 scan integration 9, GUI 21, rules 4.
 
-Later phases are not started: applications/games, similar photos/videos,
-system recommendation polish, and packaging.
+Applications/games has started with Steam inventory (see the 2026-10-29 milestone
+below). Similar photos/videos, system recommendation polish and packaging have
+not started.
 
 The 2026-10-28 review reopened safety and analyzer acceptance criteria. Follow
 the S1–S5 stabilization checklist in `docs/plan.md` before adding later phases.
@@ -314,6 +316,37 @@ refusal and README Bash syntax are locally checked. Windows installer execution
 and fresh-machine bootstrap verification remain pending; binary packaging is
 still open.
 
+Phase 4 is the current user-directed feature work (2026-10-29); continue the
+remaining providers/P2 rather than restarting U3 checks.
+
+Phase 4 first Steam milestone (2026-10-29): platform owns bounded read-only
+KeyValues parsing and common Steam root locations; core owns inventory and
+installation-folder measurement using the existing scanner. Legacy/current
+library metadata, explicit roots, installed/missing-folder/unknown status,
+build ID and optional last-played facts are supported. GUI Applications has
+background search/cancel, a virtualized list, localized ownership/size-scope
+details, Copy path and Analyze drill-down (Ctrl+4). CLI `applications` exposes
+the same JSON report with worker/mount options. Shared directories are not
+summed; separate saves/Proton/shader caches are outside installation sizes.
+Links/reparse points, unsafe metadata paths and unrequested mount crossings
+are rejected. Inventory has no filesystem mutation or cleanup selection.
+Other launchers/packages, P1 categories and P2 explained leftovers remain open.
+See `docs/applications.md` for scope and fixtures.
+Verification: fmt, Linux workspace all-targets clippy with -D warnings, all 137
+workspace tests (39 GUI), Windows all-targets cross-clippy and locked Linux
+workspace release build pass. Interactive Windows provider smoke remains open.
+
+Applications UX follow-up (2026-10-29): inventory now uses a responsive,
+virtualized card grid with left-aligned titles, prominent sizes and statuses.
+Games/apps are separate from a collapsed group of recognizable Steam runtime,
+Proton and redistributable names; grouping is presentation-only. Cards sort by
+measured size within groups, with cached name/path search. Details open in a
+bounded modal without moving the grid; source-path controls are collapsed and
+refresh stays visible. EN/RU dark/light grid and modal interaction tests cover
+narrow/wide workspaces and 100k-record scrolling. Verification: all 40 GUI tests,
+fmt, GUI all-targets clippy with -D warnings, Windows GUI cross-check and locked
+Linux release GUI build pass.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -326,7 +359,8 @@ still open.
    **Complete.**
 4. Exact duplicates: size -> prefix hash -> full BLAKE3, hardlink handling.
    **Complete.**
-5. Apps/games: Steam/Epic/GOG/Heroic/Lutris, Windows registry, Linux packages.
+5. Apps/games: **In progress.** Steam inventory GUI/CLI implemented;
+   Epic/GOG/Heroic/Lutris, Windows registry, Linux packages and leftovers remain.
 6. Similar photos via `czkawka_core`.
 7. Similar videos via `czkawka_core` + system `ffmpeg`.
 8. System command recommendations and packaging polish.
