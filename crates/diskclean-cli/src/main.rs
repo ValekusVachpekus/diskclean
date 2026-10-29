@@ -51,8 +51,8 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct ApplicationsArgs {
-    /// Provider for an explicit path (Steam by default).
-    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic", "gog", "heroic-gog", "lutris"], requires = "path")]
+    /// Provider for an explicit path (Steam by default); registry takes no path.
+    #[arg(long, value_parser = ["steam", "epic", "legendary", "heroic", "gog", "heroic-gog", "lutris", "registry"])]
     provider: Option<String>,
     /// Launcher library/config folder (Heroic GOG takes its Heroic config root).
     path: Option<PathBuf>,
@@ -254,12 +254,26 @@ fn run() -> Result<()> {
 }
 
 fn run_applications(args: ApplicationsArgs) -> Result<()> {
-    let roots = args.path.map(|path| vec![path]);
+    let registry = args.provider.as_deref() == Some("registry");
+    anyhow::ensure!(
+        !registry || args.path.is_none(),
+        "registry provider does not accept a filesystem path"
+    );
+    anyhow::ensure!(
+        registry || args.provider.is_none() || args.path.is_some(),
+        "this provider requires a source path; omit --provider for automatic discovery"
+    );
+    let roots = if registry {
+        Some(Vec::new())
+    } else {
+        args.path.map(|path| vec![path])
+    };
     let control = ScanControl::new();
     install_cancel_handler(control.clone());
     let report = diskclean_core::applications::discover_applications(
         roots.as_deref(),
         match args.provider.as_deref() {
+            Some("registry") => diskclean_core::applications::ApplicationSource::Registry,
             Some("lutris") => diskclean_core::applications::ApplicationSource::Lutris,
             Some("gog") => diskclean_core::applications::ApplicationSource::Gog,
             Some("heroic-gog") => diskclean_core::applications::ApplicationSource::HeroicGog,
@@ -287,7 +301,11 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
                 app.allocated_bytes
                     .map(format_bytes)
                     .unwrap_or_else(|| "unknown size".into()),
-                app.install_path.display()
+                if app.install_path.as_os_str().is_empty() {
+                    "installation folder unknown".into()
+                } else {
+                    app.install_path.display().to_string()
+                }
             );
         }
         for issue in &report.issues {

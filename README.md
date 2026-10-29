@@ -18,7 +18,7 @@ explanation and a risk level.
 - [x] Linux release build verified
 - [ ] Interactive Windows runtime test (the Windows target compiles and passes
       clippy)
-- [x] Steam/Epic/Legendary, Heroic Epic/GOG, explicit GOG and Linux Lutris
+- [x] Steam/Epic/Legendary, Heroic Epic/GOG, explicit GOG, Linux Lutris and Windows Uninstall
       inventory with measured sizes (GUI + CLI)
 - [ ] Other launchers, packages and explained application leftovers
 - [ ] Similar photos/videos
@@ -35,10 +35,14 @@ with `.item` files (automatic detection on Windows). Legendary and Heroic Epic
 accept the config folder containing `installed.json`; native and Linux Flatpak
 Heroic locations are detected. Heroic GOG uses the Heroic config root containing
 `gog_store/installed.json`. Direct GOG accepts a game or shallow library folder
-with `goggame-*.info`. Galaxy registry discovery, native Linux `gameinfo`-only
+with `goggame-*.info`. Galaxy-specific registry discovery, native Linux `gameinfo`-only
 layouts and Heroic Amazon remain pending.
 Lutris reads installed records from native/Flatpak `pga.db` on Linux; its explicit
 source is the data folder containing that database.
+On Windows, automatic discovery also reads current-user/machine Uninstall
+registry records in both views. Select **Windows registry** to search only that
+source; it needs no folder. Entries without a usable installation folder retain
+an unknown size. Windows Settings or the original installer handles uninstalling.
 Search measures installation sizes in the
 background, supports cancellation and opens individual games in Analyze.
 Results appear as responsive cards, with games first and Steam components
@@ -56,6 +60,8 @@ cargo run -p diskclean-cli -- applications /path/to/heroic/legendaryConfig/legen
 cargo run -p diskclean-cli -- applications /path/to/GOG-Games --provider gog --json
 cargo run -p diskclean-cli -- applications /path/to/heroic --provider heroic-gog --json
 cargo run -p diskclean-cli -- applications /path/to/lutris-data --provider lutris --json
+# Windows only; no path argument:
+cargo run -p diskclean-cli -- applications --provider registry --json
 ```
 
 

@@ -46,6 +46,11 @@ impl DiskCleanupApp {
         let roots = (!self.applications.root.trim().is_empty())
             .then(|| vec![PathBuf::from(&self.applications.root)]);
         let source = self.applications.source;
+        let roots = if source == ApplicationSource::Registry {
+            Some(Vec::new())
+        } else {
+            roots
+        };
         let options = ScanOptions {
             threads: self.settings.worker_threads,
             cross_filesystems: self.settings.cross_filesystems,
@@ -135,11 +140,15 @@ impl DiskCleanupApp {
                 }
             }
             ui.label(
-                RichText::new(if self.applications.root.trim().is_empty() {
-                    language.text(Key::SteamAutomaticSource)
-                } else {
-                    language.text(Key::SteamCustomSource)
-                })
+                RichText::new(
+                    if self.applications.root.trim().is_empty()
+                        && self.applications.source != ApplicationSource::Registry
+                    {
+                        language.text(Key::SteamAutomaticSource)
+                    } else {
+                        language.text(Key::SteamCustomSource)
+                    },
+                )
                 .color(palette.muted),
             );
         });
@@ -155,6 +164,10 @@ impl DiskCleanupApp {
                             (ApplicationSource::Heroic, "Heroic (Epic)"),
                             (ApplicationSource::Gog, "GOG"),
                             (ApplicationSource::Lutris, "Lutris"),
+                            (
+                                ApplicationSource::Registry,
+                                language.text(Key::RegistrySource),
+                            ),
                             (ApplicationSource::HeroicGog, "Heroic (GOG)"),
                         ] {
                             ui.selectable_value(&mut self.applications.source, source, label);
@@ -163,6 +176,7 @@ impl DiskCleanupApp {
                 });
                 let hint = match self.applications.source {
                     ApplicationSource::Lutris => Key::LutrisRootHint,
+                    ApplicationSource::Registry => Key::RegistryRootHint,
                     ApplicationSource::Gog => Key::GogRootHint,
                     ApplicationSource::HeroicGog => Key::HeroicGogRootHint,
                     ApplicationSource::Steam => Key::SteamRootHint,
@@ -173,7 +187,7 @@ impl DiskCleanupApp {
                 };
                 ui.label(language.text(hint));
                 ui.add_enabled(
-                    !busy,
+                    !busy && self.applications.source != ApplicationSource::Registry,
                     egui::TextEdit::singleline(&mut self.applications.root)
                         .hint_text(language.text(hint))
                         .desired_width(ui.available_width()),
@@ -478,7 +492,7 @@ fn application_card(
     let status = language.text(status_key(app.status));
     painter.circle_filled(egui::pos2(left + 3.0, rect.top() + 103.0), 3.0, color);
     let mut status_job = egui::text::LayoutJob::simple_singleline(
-        format!("{} · {status}", app.launcher),
+        format!("{} · {status}", launcher_label(app, language)),
         FontId::proportional(11.5),
         palette.muted,
     );
@@ -513,6 +527,14 @@ fn application_card(
             ""
         }
     ))
+}
+
+fn launcher_label(app: &Application, language: crate::i18n::Language) -> &str {
+    if app.launcher == "Windows Registry" {
+        language.text(Key::RegistrySource)
+    } else {
+        &app.launcher
+    }
 }
 
 impl DiskCleanupApp {
@@ -550,7 +572,7 @@ impl DiskCleanupApp {
                         ui.label(
                             RichText::new(format!(
                                 "{} · {}",
-                                app.launcher,
+                                launcher_label(app, language),
                                 language.text(status_key(app.status))
                             ))
                             .color(palette.muted),
@@ -564,11 +586,15 @@ impl DiskCleanupApp {
                             ui.label(language.text(Key::ApplicationPartialSizeHelp));
                         }
                         ui.add_space(8.0);
+                        if app.install_path.as_os_str().is_empty() {
+                            ui.label(language.text(Key::ApplicationNoInstallPath));
+                        }
                         let path = app.install_path.to_string_lossy();
                         ui.add(egui::Label::new(path.as_ref()).truncate())
                             .on_hover_text(path.as_ref());
                         ui.label(language.text(match app.launcher.as_str() {
                             "Lutris" => Key::LutrisOwnership,
+                            "Windows Registry" => Key::RegistryOwnership,
                             "GOG" => Key::GogOwnership,
                             "Heroic (GOG)" => Key::HeroicGogOwnership,
                             "Steam" => Key::SteamOwnership,
@@ -576,6 +602,10 @@ impl DiskCleanupApp {
                             _ => Key::EpicOwnership,
                         }));
                         ui.label(language.text(Key::ApplicationDataScope));
+                        if let Some(key) = &app.registry_key {
+                            ui.label(language.text(Key::ApplicationEvidence));
+                            ui.add(egui::Label::new(key).truncate()).on_hover_text(key);
+                        }
                         if let Some(build) = &app.build_id {
                             ui.add(
                                 egui::Label::new(format!(
@@ -602,8 +632,9 @@ impl DiskCleanupApp {
                     {
                         analyze = Some(app.install_path.clone());
                     }
-                    if components::secondary_button(ui, palette, language.text(Key::CopyPath))
-                        .clicked()
+                    if !app.install_path.as_os_str().is_empty()
+                        && components::secondary_button(ui, palette, language.text(Key::CopyPath))
+                            .clicked()
                     {
                         ui.ctx()
                             .copy_text(app.install_path.to_string_lossy().into_owned());

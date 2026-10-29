@@ -315,3 +315,12 @@ Lutris follow-up (2026-10-29): seventh source uses a Lutris data directory with
 at narrow widths. Details explain DB evidence, Wine/shared-directory accounting
 and last-played metadata; generic size scope now explicitly includes all files
 inside the recorded directory. EN/RU dark/light source/details coverage at 600 px.
+
+Windows registry follow-up (2026-10-29): eighth source reads live Windows
+Uninstall records and disables the irrelevant source-folder field. The settings
+heading is now Application sources. Card/provider text is localized; details
+explain registration evidence, integrity/shared-folder limits and external
+uninstall management. Registry key evidence has a truncated line/tooltip. A
+missing usable location has an explicit EN/RU explanation, unknown size and no
+Copy path/Analyze action. Four theme/language combinations at 600 px verify
+source selection, evidence, absent actions and no cleanup selection.

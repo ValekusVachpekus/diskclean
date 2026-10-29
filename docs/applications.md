@@ -2,7 +2,7 @@
 
 Phase 4 is in progress. Steam, Epic Games Launcher, Legendary and Heroic Epic
 inventory are implemented, plus Heroic GOG, explicit GOG `.info` sources and
-Linux Lutris.
+Linux Lutris and Windows Uninstall records.
 Discovery is read-only and works offline; it never uninstalls games or creates cleanup selections.
 
 ## Usage
@@ -13,8 +13,9 @@ or SteamLibrary (containing `steamapps`), Epic `Manifests`, or Legendary config
 (containing `installed.json`, also used by Heroic Epic). GOG accepts game/library
 folders with `.info` files; Heroic GOG accepts its Heroic config root.
 Click **Find applications** (or **Refresh list** after a search). Library path
-controls are inside **Choose a source folder…**, with a provider selector.
-An empty root searches the automatic sources; standalone GOG folders remain
+controls are inside **Application sources…**, with a provider selector.
+An empty root searches the automatic sources (except selecting Windows registry
+searches that provider only); standalone GOG folders remain
 explicit. Epic is automatic on Windows;
 on Linux its `.item` directory must be explicit. The previous inventory remains
 visible while the background job runs; cancellation or a worker error preserves
@@ -41,8 +42,8 @@ CLI supports Ctrl+C and `--cross-filesystems`. GUI uses the persisted worker and
 mount settings. Referenced libraries on another filesystem, including Linux bind
 mounts, are skipped unless crossing is enabled. An explicit root can itself be
 a mounted library. There is no automatic recursive search of arbitrary volumes.
-Nonstandard Windows installations can be entered explicitly; registry discovery
-is a later provider milestone.
+Nonstandard launcher directories can be entered explicitly. Registry-only
+discovery takes no source folder.
 
 ## Evidence and accounting
 
@@ -242,6 +243,66 @@ Format references: Lutris's
 and [data-path settings](https://github.com/lutris/lutris/blob/master/lutris/settings.py).
 See [dependency notes](dependencies.md) for the added SQLite dependency.
 
+## Windows Uninstall registry
+
+Automatic discovery on Windows includes current-user (`HKCU`) and machine-wide
+(`HKLM`) `Software\Microsoft\Windows\CurrentVersion\Uninstall`, explicitly
+using both WOW64 registry views. Select **Windows registry** in Applications to
+search only this source, without a folder. Other users' hives, offline registry
+exports and Store/MSIX packages are not probed. On other platforms this explicit
+source reports unsupported and is excluded from automatic discovery.
+
+```powershell
+cargo run -p diskclean-cli -- applications --provider registry --json
+```
+
+Names and versions come from `DisplayName` and `DisplayVersion`. Entries without
+a name and hidden `SystemComponent` registrations are skipped. Identical records
+from shared views are deduplicated using hive, product subkey and metadata;
+conflicting records and distinct products remain separate. Standard Uninstall
+registrations from GOG are included, without inferring a launcher from a name or
+folder. Dedicated Galaxy vendor keys remain future work.
+
+`InstallLocation` is optional. Only a local drive-absolute, non-root directory
+without traversal, device/UNC prefixes or unresolved environment variables is
+eligible for scanning; a matching outer quote pair is accepted. No guesses come
+from executable icons or uninstall strings. Missing/unsupported locations retain
+an unknown status/size and have no Copy path or Analyze action. A recorded usable
+folder that exists means Installed; a missing folder means Missing, not proof
+that uninstalling completed. The usual no-follow, hardlink, mount, partial-size
+and cancellation rules apply to each recorded directory as a scan root.
+Registry registrations do not prove integrity, exclusive ownership or removable
+bytes; overlapping folders/providers can report the same files.
+
+JSON adds `registry_key` (hive, view, subkey) as evidence. `manifest_path` is empty
+for registry records; `install_path` is empty when no usable directory is known.
+Empty paths are absent evidence, never a request to scan the current directory.
+Details show the source key with a tooltip and explain management through Windows
+Settings/the original installer. No uninstall controls or cleanup selections are
+created.
+
+Native handles request query/enumerate rights only. Each value read is bounded
+to 32 KiB, all views together to 20,000 enumerated keys and 16 MiB of metadata
+text. Reaching a limit returns the partial inventory with an issue. Individual
+access/malformed-value errors preserve other entries. Enumeration is cancellable
+between entries/measurements and is a live observation, not a transactional
+registry snapshot. No registry data is modified; no `UninstallString`,
+`DisplayIcon` or `EstimatedSize` values are read. The existing `windows-sys`
+Registry API feature adds no dependency.
+
+Linux-executable fixtures cover native-path validation, shared/hardlinked folder
+sizes, missing/unknown folders, linked installs, evidence and cancellation.
+CLI verifies incompatible path arguments and unsupported hosts. EN/RU dark/light
+GUI tests cover the no-folder source and absent path actions. A Windows-only test
+creates its own uniquely named HKCU fixture, verifies Unicode/invalid/oversized
+values, hidden components and that reader handles cannot write, then removes the
+fixture. That test has been cross-compiled locally; execution awaits Windows
+CI/runtime. Interactive Windows inventory acceptance is still open.
+
+Format/access references: Microsoft documents
+[Uninstall values](https://learn.microsoft.com/en-us/windows/win32/msi/uninstall-registry-key)
+and [alternate registry views](https://learn.microsoft.com/en-us/windows/win32/winprog64/accessing-an-alternate-registry-view).
+
 ## Boundaries and tests
 
 Platform owns local metadata access and the text KeyValues parser. Core maps
@@ -272,10 +333,8 @@ The parser here is implemented locally without importing another parser.
 
 ## Remaining Phase 4 work
 
-Next: Windows Uninstall registry, including GOG discovery. Native Linux
-`gameinfo`-only layouts,
-Heroic Amazon/third-party,
-Windows registry and Linux package discovery remain; related
+Next: Linux packages. Galaxy-specific registry discovery, native Linux
+`gameinfo`-only layouts and Heroic Amazon/third-party remain open; related
 folder ownership; P1 category totals; and P2 explained leftovers with explicit
 review through the audited trash pipeline. No missing-manifest heuristic marks
 saves or user data disposable. Uninstall actions remain recommendation-only.

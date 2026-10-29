@@ -83,6 +83,7 @@ pub fn discover_lutris(
                 status: InstallationStatus::Unknown,
                 install_path: game.directory,
                 manifest_path: path.clone(),
+                registry_key: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,

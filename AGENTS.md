@@ -407,6 +407,22 @@ Linux/Windows all-targets workspace clippy -D warnings, platform no-default-feat
 check and locked Linux workspace release build pass. See `docs/plan.md` and
 `docs/dependencies.md`.
 
+Windows Uninstall milestone (2026-10-29): native HKCU/HKLM 32/64-bit views
+now supply read-only application names, versions and optional local installation
+folders to GUI/CLI and automatic Windows discovery. Platform uses the existing
+windows-sys dependency with Registry enabled; unsafe blocks are confined to its
+FFI wrapper, with query/enumerate-only handles. Values, entry count and retained
+text are bounded; hidden components and duplicate shared-view entries are
+filtered. No uninstall commands or estimated sizes are read. Unknown folders
+remain visible without Copy path/Analyze; registry_key is separate evidence,
+not a filesystem path. Empty install_path/manifest_path represent absent paths
+in these records and must never be passed to filesystem actions. Standard GOG
+Uninstall records are included; Galaxy-specific keys remain open. Inventory
+never proposes deletion. All 174 Linux workspace tests (45 GUI), fmt, Linux/Windows all-targets clippy
+-D warnings and locked Linux workspace release build pass; native Windows
+fixture execution/manual smoke remain pending. Next:
+Linux packages, then P2. See docs/plan.md for verification and remaining scope.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -421,7 +437,7 @@ check and locked Linux workspace release build pass. See `docs/plan.md` and
    **Complete.**
 5. Apps/games: **In progress.** Steam, Epic, Legendary and Heroic Epic inventory
    GUI/CLI implemented, plus Heroic GOG and explicit GOG `.info` folders. Next:
-   Windows registry (Linux Lutris implemented), then packages and leftovers.
+   Linux packages and leftovers (Lutris and Windows Uninstall implemented).
    GOG Galaxy registry, Linux `gameinfo`-only layouts and Heroic
    Amazon/third-party remain open.
 6. Similar photos via `czkawka_core`.

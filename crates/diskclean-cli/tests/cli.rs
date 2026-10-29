@@ -442,3 +442,25 @@ fn applications_lutris_queries_installed_rows_and_never_changes_source() {
     assert_eq!(fs::read(&path).expect("after"), before);
     assert_eq!(fs::read_dir(root).expect("dir").count(), 1);
 }
+
+#[test]
+fn registry_provider_rejects_paths_and_other_providers_require_them() {
+    diskclean()
+        .args(["applications", "unused", "--provider", "registry"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "does not accept a filesystem path",
+        ));
+    diskclean()
+        .args(["applications", "--provider", "epic"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("requires a source path"));
+    #[cfg(not(windows))]
+    diskclean()
+        .args(["applications", "--provider", "registry", "--json"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("only available on Windows"));
+}

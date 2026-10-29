@@ -1343,6 +1343,7 @@ fn applications_ui_fixture() -> diskclean_core::applications::ApplicationsReport
             status: InstallationStatus::Installed,
             install_path: "/virtual/Steam/steamapps/common/Test Game".into(),
             manifest_path: "/virtual/Steam/steamapps/appmanifest_10.acf".into(),
+            registry_key: None,
             allocated_bytes: Some(GIB),
             logical_bytes: Some(GIB),
             size_complete: true,
@@ -1705,6 +1706,75 @@ fn lutris_source_and_localized_details_fit_narrow_windows() {
             assert!(
                 harness
                     .query_by_label(language.text(Key::LutrisRootHint))
+                    .is_some()
+            );
+        }
+    }
+}
+
+#[test]
+fn registry_missing_location_shows_evidence_without_path_actions_in_both_languages() {
+    use crate::i18n::Key;
+    use diskclean_core::applications::{ApplicationSource, InstallationStatus};
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = theme;
+            app.workspace = Workspace::Applications;
+            let mut report = applications_ui_fixture();
+            report.applications.truncate(1);
+            let row = &mut report.applications[0];
+            row.name = "Registry App".into();
+            row.launcher = "Windows Registry".into();
+            row.registry_key = Some("HKCU[64]\\Software\\Example".into());
+            row.manifest_path.clear();
+            row.install_path.clear();
+            row.status = InstallationStatus::Unknown;
+            row.allocated_bytes = None;
+            row.logical_bytes = None;
+            app.applications.report = Some(report);
+            let mut harness = harness(app, Vec2::new(600.0, 600.0));
+            harness.get_by_label("Registry App").click();
+            harness.run();
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::RegistryOwnership))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::ApplicationNoInstallPath))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label("HKCU[64]\\Software\\Example")
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::CopyPath))
+                    .is_none()
+            );
+            assert!(harness.state().cleanup.selected.is_empty());
+            harness.get_by_label(language.text(Key::Close)).click();
+            harness.run();
+            harness
+                .get_by_label(language.text(Key::SteamLibrarySettings))
+                .click();
+            harness.run();
+            let button = harness.get_by_label(language.text(Key::RegistrySource));
+            assert!(button.rect().right() <= 600.0);
+            button.click();
+            harness.run();
+            assert_eq!(
+                harness.state().applications.source,
+                ApplicationSource::Registry
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::RegistryRootHint))
                     .is_some()
             );
         }

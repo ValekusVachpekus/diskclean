@@ -7,7 +7,7 @@ here so a fresh agent can recover context after a reset.
 Last updated: 2026-10-29.
 
 Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
-Next: Windows registry inventory, then Linux packages and P2 ownership/leftovers;
+Next: Linux package inventory, then P2 ownership/leftovers;
 do not restart U3 checks as the next feature milestone. Outstanding release
 checks below remain separately tracked.
 
@@ -44,7 +44,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info and Linux Lutris inventory; registry next; packages and leftovers remain |
+| Phase 4 applications/games | In progress | Steam/Epic/Legendary, Heroic Epic/GOG and explicit GOG .info and Linux Lutris and Windows Uninstall inventory; packages and leftovers remain |
 | Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -467,7 +467,7 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
 - [x] Localized Applications workspace with background search/cancel, virtualized
       card grid, grouped Steam components, cached search, details modal, Copy path
       and drill-down to Analyze; Ctrl+4.
-- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog|lutris`, worker
+- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic|legendary|heroic|gog|heroic-gog|lutris|registry`, worker
       and mount-boundary options.
 - [x] Epic `.item` inventory: native Windows automatic location, explicit
       manifest directory, measured sizes, partial/missing/unknown states, GUI/CLI.
@@ -479,8 +479,11 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
       layouts without `.info` metadata. Heroic Amazon/third-party remain separate.
 - [x] Linux Lutris native/Flatpak `pga.db`: installed rows, bounded private
       SQLite/WAL snapshots, shared size pipeline, GUI/CLI and cancellation.
-- [ ] Next provider: Windows Uninstall registry (including GOG discovery).
-      Linux package inventories remain open.
+- [x] Windows Uninstall registry: HKCU/HKLM, both views, names/versions,
+      optional measured folders, bounded read-only access, GUI/CLI and cancellation.
+      Includes GOG games that have Uninstall records; vendor-specific Galaxy keys
+      remain in the GOG extensions item above.
+- [ ] Next provider: Linux packages (dpkg/pacman/Flatpak/Snap).
 - [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
 - [ ] Interactive Windows provider smoke.
 
@@ -564,6 +567,30 @@ cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Phase 4, Windows Uninstall): Added native HKCU/HKLM Uninstall
+  inventory with explicit 32/64-bit registry views, query/enumerate-only handles,
+  bounded values (32 KiB), 20k enumerated keys and a 16 MiB text budget. Hidden
+  system components are excluded; identical records from shared views are
+  deduplicated, while conflicting/product/provider evidence remains separate.
+  Name/version come from registry metadata; optional local InstallLocation is
+  measured with the existing scanner/cache. Empty, relative, drive-root,
+  UNC/device, traversal and unexpanded-variable paths remain unknown. No
+  DisplayIcon/UninstallString/EstimatedSize inference or command execution.
+  Added separate registry_key evidence, EN/RU details and no path actions when
+  location is absent; source selector takes no folder. Automatic Windows probes
+  include this provider; explicit CLI `--provider registry` takes no PATH.
+  Existing GOG Uninstall registrations are included, but vendor-specific Galaxy
+  keys, Store/MSIX and other-user hives remain outside this milestone.
+  No new dependencies; platform uses the existing windows-sys Registry feature.
+  Linux fixtures cover sizes/hardlinks/shared folders, unknown/missing folders,
+  links and cancellation; CLI and EN/RU dark/light GUI regressions cover source
+  selection/evidence and absent path actions. Added a Windows-only owned HKCU
+  fixture for Unicode/type/bounds/component filtering and read-only handle rights;
+  it cross-compiles locally but requires Windows CI/runtime to execute.
+  Verification: all 174 Linux workspace tests (45 GUI), fmt and Linux/Windows
+  all-targets clippy -D warnings, diff whitespace and locked Linux workspace
+  release build pass. Next: Linux packages. Interactive Windows provider smoke remains open.
 
 - 2026-10-29 (Phase 4, Lutris): Implemented Linux installed-game inventory from
   `pga.db`, chosen over incomplete YAML configs because the database provides

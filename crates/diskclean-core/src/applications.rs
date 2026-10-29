@@ -10,8 +10,10 @@ use crate::{ScanControl, ScanError, ScanIssue, ScanOptions, scan};
 
 mod gog;
 mod lutris;
+mod registry;
 pub use gog::discover_gog;
 pub use lutris::discover_lutris;
+pub use registry::discover_registry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -28,9 +30,13 @@ pub struct Application {
     pub launcher: String,
     pub status: InstallationStatus,
     #[serde(serialize_with = "crate::error::serialize_path")]
+    /// Empty when installer metadata does not supply a usable local directory.
     pub install_path: PathBuf,
     #[serde(serialize_with = "crate::error::serialize_path")]
     pub manifest_path: PathBuf,
+    /// Registry evidence is not a filesystem path; manifest_path is empty here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry_key: Option<String>,
     pub allocated_bytes: Option<u64>,
     pub logical_bytes: Option<u64>,
     /// A scan issue or skipped mount makes the measured size a lower bound.
@@ -180,6 +186,7 @@ pub fn discover_steam(
                 status: InstallationStatus::Unknown,
                 install_path: install_path.clone(),
                 manifest_path: path,
+                registry_key: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -296,6 +303,7 @@ pub fn discover_epic(
                 status: InstallationStatus::Unknown,
                 install_path: manifest.install_location,
                 manifest_path: path,
+                registry_key: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -338,6 +346,7 @@ pub enum ApplicationSource {
     Gog,
     HeroicGog,
     Lutris,
+    Registry,
 }
 
 /// Legendary config directories, including Heroic's Epic backend. Account-wide
@@ -408,6 +417,7 @@ pub fn discover_legendary(
                 status: InstallationStatus::Unknown,
                 install_path: game.install_path,
                 manifest_path: path.clone(),
+                registry_key: None,
                 allocated_bytes: None,
                 logical_bytes: None,
                 size_complete: false,
@@ -449,6 +459,18 @@ pub fn discover_applications(
 ) -> Result<ApplicationsReport, ScanError> {
     if let Some(roots) = roots {
         return match source {
+            ApplicationSource::Registry => {
+                if !roots.is_empty() {
+                    return Err(ScanError::Root {
+                        path: roots[0].clone(),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "registry provider does not accept a filesystem path",
+                        ),
+                    });
+                }
+                discover_registry(options, control)
+            }
             ApplicationSource::Lutris => discover_lutris(roots, options, control),
             ApplicationSource::Steam => discover_steam(roots, options, control),
             ApplicationSource::Epic => discover_epic(roots, options, control),
@@ -502,6 +524,12 @@ pub fn discover_applications(
         report.applications.extend(other.applications);
         report.issues.extend(other.issues);
     }
+    #[cfg(windows)]
+    {
+        let other = discover_registry(options, control)?;
+        report.applications.extend(other.applications);
+        report.issues.extend(other.issues);
+    }
     Ok(report)
 }
 
@@ -519,6 +547,9 @@ fn measure_installation(
     issues: &mut Vec<ScanIssue>,
 ) -> Result<(), ScanError> {
     let install_path = application.install_path.clone();
+    if install_path.as_os_str().is_empty() {
+        return Ok(());
+    }
     match permitted(library, &install_path, options, mounts) {
         Ok(()) => {
             let meta = match metadata(&install_path) {
