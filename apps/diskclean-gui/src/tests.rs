@@ -1511,3 +1511,47 @@ fn application_cards_form_responsive_groups_and_search_components() {
         }
     }
 }
+
+#[test]
+fn epic_cards_show_provider_specific_localized_evidence() {
+    use crate::i18n::Key;
+    for language in [Language::English, Language::Russian] {
+        for theme in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut app = test_app(english_settings(), false);
+            app.settings.language = language;
+            app.settings.theme = theme;
+            app.workspace = Workspace::Applications;
+            let mut report = applications_ui_fixture();
+            report.applications[0].launcher = "Epic Games".into();
+            report.applications[0].name = "Test Epic Game".into();
+            app.applications.report = Some(report);
+            let mut harness = harness(app, Vec2::new(760.0, 600.0));
+            harness.get_by_label("Test Epic Game").click();
+            harness.run();
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::EpicOwnership))
+                    .is_some()
+            );
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::SteamOwnership))
+                    .is_none()
+            );
+            harness.get_by_label(language.text(Key::Close)).click();
+            harness.run();
+            harness
+                .get_by_label(language.text(Key::SteamLibrarySettings))
+                .click();
+            harness.run();
+            harness.get_by_label("Epic Games").click();
+            harness.run();
+            assert!(harness.state().applications.epic_source);
+            assert!(
+                harness
+                    .query_by_label(language.text(Key::EpicRootHint))
+                    .is_some()
+            );
+        }
+    }
+}

@@ -347,6 +347,20 @@ narrow/wide workspaces and 100k-record scrolling. Verification: all 40 GUI tests
 fmt, GUI all-targets clippy with -D warnings, Windows GUI cross-check and locked
 Linux release GUI build pass.
 
+Epic inventory milestone (2026-10-29): user accepted the responsive card-grid
+layout. Added offline `.item` metadata in platform and Epic inventory in core,
+sharing the measured-size pipeline with Steam. Automatic native discovery probes
+both Steam and Epic (Epic ProgramData on Windows); explicit roots select their
+provider in GUI or CLI `--provider epic`. Provider labels/evidence are localized;
+missing/incomplete/unverified installations stay distinct. Metadata reads are
+bounded, links and mount crossings retain existing policy; no launch commands
+are executed. Wine drive paths are not translated. `serde_json` (already an
+approved workspace dependency) is now used by platform too. Next: Heroic/Legendary
+inventory. Related folders/P2, remaining providers and Windows runtime smoke
+remain open. Verification: fmt, all 144 workspace tests (41 GUI), Linux and
+Windows all-targets workspace clippy -D warnings and locked Linux workspace
+release build pass. See `docs/applications.md` and `docs/plan.md`.
+
 ## Roadmap
 
 0. Foundation: scanner, tree model, CLI, tests, CI. **Complete.**
@@ -359,8 +373,8 @@ Linux release GUI build pass.
    **Complete.**
 4. Exact duplicates: size -> prefix hash -> full BLAKE3, hardlink handling.
    **Complete.**
-5. Apps/games: **In progress.** Steam inventory GUI/CLI implemented;
-   Epic/GOG/Heroic/Lutris, Windows registry, Linux packages and leftovers remain.
+5. Apps/games: **In progress.** Steam and Epic inventory GUI/CLI implemented;
+   Heroic/Legendary next, then GOG/Lutris, registry/packages and leftovers.
 6. Similar photos via `czkawka_core`.
 7. Similar videos via `czkawka_core` + system `ffmpeg`.
 8. System command recommendations and packaging polish.

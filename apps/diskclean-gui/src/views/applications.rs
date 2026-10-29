@@ -1,10 +1,10 @@
-//! Background Steam inventory and a read-only applications workspace.
+//! Background application inventory and a read-only applications workspace.
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
 use diskclean_core::applications::{
-    Application, ApplicationsReport, InstallationStatus, discover_steam,
+    Application, ApplicationsReport, InstallationStatus, discover_applications,
 };
 use diskclean_core::{ScanControl, ScanError, ScanOptions};
 use eframe::egui::{self, Align2, FontId, RichText, Stroke, vec2};
@@ -27,6 +27,7 @@ impl Drop for InventoryJob {
 #[derive(Default)]
 pub(crate) struct ApplicationsWorkspace {
     pub(crate) root: String,
+    pub(crate) epic_source: bool,
     pub(crate) report: Option<ApplicationsReport>,
     pub(crate) selected: Option<usize>,
     job: Option<InventoryJob>,
@@ -42,14 +43,9 @@ impl DiskCleanupApp {
         if self.applications.job.is_some() {
             return;
         }
-        let roots = if self.applications.root.trim().is_empty() {
-            diskclean_platform::steam::default_roots()
-                .into_iter()
-                .filter(|path| path.symlink_metadata().is_ok())
-                .collect()
-        } else {
-            vec![PathBuf::from(&self.applications.root)]
-        };
+        let roots = (!self.applications.root.trim().is_empty())
+            .then(|| vec![PathBuf::from(&self.applications.root)]);
+        let epic = self.applications.epic_source;
         let options = ScanOptions {
             threads: self.settings.worker_threads,
             cross_filesystems: self.settings.cross_filesystems,
@@ -61,7 +57,12 @@ impl DiskCleanupApp {
         match std::thread::Builder::new()
             .name("applications".into())
             .spawn(move || {
-                let _ = sender.send(discover_steam(&roots, &options, &worker));
+                let _ = sender.send(discover_applications(
+                    roots.as_deref(),
+                    epic,
+                    &options,
+                    &worker,
+                ));
             }) {
             Ok(_) => {
                 self.applications.job = Some(InventoryJob { control, receiver });
@@ -145,11 +146,22 @@ impl DiskCleanupApp {
         egui::CollapsingHeader::new(language.text(Key::SteamLibrarySettings))
             .id_salt("steam_library_settings")
             .show(ui, |ui| {
-                ui.label(language.text(Key::SteamRootHint));
+                ui.add_enabled_ui(!busy, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.selectable_value(&mut self.applications.epic_source, false, "Steam");
+                        ui.selectable_value(&mut self.applications.epic_source, true, "Epic Games");
+                    });
+                });
+                let hint = if self.applications.epic_source {
+                    Key::EpicRootHint
+                } else {
+                    Key::SteamRootHint
+                };
+                ui.label(language.text(hint));
                 ui.add_enabled(
                     !busy,
                     egui::TextEdit::singleline(&mut self.applications.root)
-                        .hint_text(language.text(Key::SteamRootHint))
+                        .hint_text(language.text(hint))
                         .desired_width(ui.available_width()),
                 );
             });
@@ -452,7 +464,7 @@ fn application_card(
     let status = language.text(status_key(app.status));
     painter.circle_filled(egui::pos2(left + 3.0, rect.top() + 103.0), 3.0, color);
     let mut status_job = egui::text::LayoutJob::simple_singleline(
-        status.into(),
+        format!("{} · {status}", app.launcher),
         FontId::proportional(11.5),
         palette.muted,
     );
@@ -523,7 +535,8 @@ impl DiskCleanupApp {
                         );
                         ui.label(
                             RichText::new(format!(
-                                "Steam · {}",
+                                "{} · {}",
+                                app.launcher,
                                 language.text(status_key(app.status))
                             ))
                             .color(palette.muted),
@@ -540,7 +553,11 @@ impl DiskCleanupApp {
                         let path = app.install_path.to_string_lossy();
                         ui.add(egui::Label::new(path.as_ref()).truncate())
                             .on_hover_text(path.as_ref());
-                        ui.label(language.text(Key::SteamOwnership));
+                        ui.label(language.text(if app.launcher == "Steam" {
+                            Key::SteamOwnership
+                        } else {
+                            Key::EpicOwnership
+                        }));
                         ui.label(language.text(Key::ApplicationDataScope));
                         if let Some(build) = &app.build_id {
                             ui.add(

@@ -281,3 +281,42 @@ fn applications_json_measures_steam_installation_and_reports_bad_metadata() {
     assert_eq!(report["issues"].as_array().expect("issues").len(), 1);
     assert!(apps.join("common/Test Game/data.bin").exists());
 }
+
+#[test]
+fn applications_epic_provider_measures_explicit_manifest_directory() {
+    let temp = tempdir().expect("temp");
+    let root = temp.path().join("Manifests");
+    fs::create_dir_all(&root).expect("manifests");
+    let install = temp.path().join("Game");
+    write_file(&install.join("data.bin"), 456);
+    fs::write(
+        root.join("game.item"),
+        serde_json::json!({
+            "AppName": "epic-id", "DisplayName": "Epic Game", "InstallLocation": install,
+            "bIsIncompleteInstall": false, "bNeedsValidation": false, "InstallSize": 999999
+        })
+        .to_string(),
+    )
+    .expect("manifest");
+    let output = diskclean()
+        .arg("applications")
+        .arg(&root)
+        .args(["--provider", "epic", "--json"])
+        .output()
+        .expect("run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(report["applications"].as_array().expect("apps").len(), 1);
+    assert_eq!(report["applications"][0]["launcher"], "Epic Games");
+    assert_eq!(report["applications"][0]["logical_bytes"], 456);
+    assert_eq!(report["applications"][0]["status"], "installed");
+    assert!(install.join("data.bin").exists());
+    diskclean()
+        .args(["applications", "--provider", "epic"])
+        .assert()
+        .failure();
+}

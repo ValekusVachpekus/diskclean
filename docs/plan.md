@@ -7,7 +7,7 @@ here so a fresh agent can recover context after a reset.
 Last updated: 2026-10-29.
 
 Current work: Phase 4 applications/games, as directed by the user on 2026-10-29.
-Continue with the remaining inventory providers and P2 ownership/leftovers;
+Next: Heroic/Legendary inventory, then the remaining providers and P2 ownership/leftovers;
 do not restart U3 checks as the next feature milestone. Outstanding release
 checks below remain separately tracked.
 
@@ -44,7 +44,7 @@ not installed locally and no license audit is claimed by these stabilization che
 | Phase 3 exact duplicates | Complete | BLAKE3 engine, hardlink/symlink handling, GUI keeper workflow, CLI `duplicates` |
 | Parallel read operations | Complete | bounded metadata batches, concurrent duplicate hashing, persisted worker count and CLI flags; serial/parallel equivalence and cancellation coverage |
 | Approved product priorities | Planned | P1 readable space categories, P2 explained app/game leftovers, P3 duplicate preview and keeper rules |
-| Phase 4 applications/games | In progress | Steam inventory, measured installation sizes, GUI/CLI; other providers and leftovers remain |
+| Phase 4 applications/games | In progress | Steam + Epic inventory, measured installation sizes, GUI/CLI; Heroic/Legendary next, other providers and leftovers remain |
 | Phase 5+ | Not started | similar media, packaging |
 
 ## Product decisions locked for this plan
@@ -214,7 +214,7 @@ Three primary zones plus a global status bar:
 
 `Ctrl+O` choose folder, `Ctrl+R`/`F5` rescan, `Ctrl+F` search, `Esc` close/reset,
 `Backspace` up, `Enter` open selected, arrows navigate, `Ctrl+,` settings,
-`Ctrl+1/2/3` switch workspaces, `Space` toggle cleanup item. `Delete` never
+`Ctrl+1/2/3/4` switch workspaces, `Space` toggle cleanup item. `Delete` never
 deletes; it opens the review basket where applicable.
 
 All controls keyboard reachable, visible focus ring, AA contrast, AccessKit
@@ -465,9 +465,14 @@ P1 category summaries above. P1/P2 acceptance criteria remain open.
       installed, missing-folder and unknown states, build ID and optional last
       played metadata. Missing folders do not prove an uninstall.
 - [x] Localized Applications workspace with background search/cancel, virtualized
-      list, selection details, Copy path and drill-down to Analyze; Ctrl+4.
-- [x] CLI `applications [STEAM_ROOT] --json`, worker and mount-boundary options.
-- [ ] Remaining providers: Epic/GOG/Heroic/Lutris, Windows registry and Linux
+      card grid, grouped Steam components, cached search, details modal, Copy path
+      and drill-down to Analyze; Ctrl+4.
+- [x] CLI `applications [PATH] --json`, explicit `--provider steam|epic`, worker
+      and mount-boundary options.
+- [x] Epic `.item` inventory: native Windows automatic location, explicit
+      manifest directory, measured sizes, partial/missing/unknown states, GUI/CLI.
+- [ ] Next provider: Heroic/Legendary installed-game metadata (Linux first).
+- [ ] Remaining providers: GOG/Lutris, Windows registry and Linux
       package inventories.
 - [ ] Related folders, explained leftovers and audited explicit cleanup (P2).
 - [ ] Interactive Windows provider smoke.
@@ -552,6 +557,20 @@ cleanup candidates or perform uninstall operations. See `docs/applications.md`.
 - No network, telemetry, auto-update, or elevation.
 
 ## Progress log
+
+- 2026-10-29 (Phase 4, Epic inventory): User accepted the card-grid direction;
+  retained responsive cards and collapsed Steam components. Added bounded local
+  `.item` parsing, automatic native Windows discovery alongside Steam and an
+  explicit Epic manifest-directory source in GUI/CLI. Cards and details identify
+  the actual launcher and explain local metadata evidence in EN/RU. Sizes reuse
+  the read-only scanner and shared-directory measurement cache; manifest sizes
+  and launch commands are never used. Incomplete/validation-needed/unspecified
+  states remain unknown; missing folders are not proof of an uninstall. Foreign
+  Wine drive paths are rejected until explicit translation is supported. Other
+  providers, P1/P2 and interactive Windows acceptance remain open. Next provider:
+  Heroic/Legendary. Verification: fmt, all 144 workspace tests (41 GUI), Linux
+  and Windows all-targets workspace clippy with -D warnings, diff whitespace
+  and locked Linux workspace release build pass. Windows runtime is untested.
 
 - 2026-10-29 (Applications card layout): Replaced the wide centered list with
   a responsive grid of fixed-height cards (240 px minimum target width), left

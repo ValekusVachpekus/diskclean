@@ -291,3 +291,9 @@ jobs keep their initial count. Explanatory text notes that HDDs may benefit
 from fewer workers. The selector has an accessible label; headless interaction
 tests cover switching manual/automatic in both languages, and modal bounds
 remain covered at 600×480.
+
+Applications provider follow-up (2026-10-29): accepted card layout retained.
+Source settings now choose Steam or Epic for explicit folders; an empty source
+searches both native providers. Card status lines include the launcher, details
+show its own metadata explanation, and Epic never enters the Steam components
+group. EN/RU dark/light tests cover source selection and Epic details.

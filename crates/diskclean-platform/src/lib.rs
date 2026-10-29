@@ -5,6 +5,7 @@
 //! This crate deliberately contains no cleanup policy. It only reports what the
 //! operating system says about files, directories, and mounted volumes.
 
+pub mod epic;
 pub mod file_meta;
 pub mod mounts;
 pub mod steam;

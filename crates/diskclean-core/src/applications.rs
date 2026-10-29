@@ -1,4 +1,4 @@
-//! Read-only application inventory. Steam is the first supported provider.
+//! Read-only Steam and Epic application inventory.
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -181,86 +181,16 @@ pub fn discover_steam(
                 build_id: manifest.build_id,
                 last_played_unix: manifest.last_played,
             };
-            match permitted(&library, &install_path, options, &mounts) {
-                Ok(()) => {
-                    let meta = match metadata(&install_path) {
-                        Ok(meta) => meta,
-                        Err(error) => {
-                            report.issues.push(ScanIssue::from_io(
-                                install_path,
-                                "read metadata",
-                                &error,
-                            ));
-                            report.applications.push(application);
-                            continue;
-                        }
-                    };
-                    if meta.kind == FileKind::Directory {
-                        if manifest.state_flags.is_some_and(|flags| flags & 4 != 0) {
-                            application.status = InstallationStatus::Installed;
-                        }
-                        let key = (
-                            meta.dev,
-                            meta.ino,
-                            if meta.ino == 0 {
-                                install_path.clone()
-                            } else {
-                                PathBuf::new()
-                            },
-                        );
-                        let size = if let Some(size) = sizes.get(&key) {
-                            Some(*size)
-                        } else {
-                            match scan(&install_path, options, control) {
-                                Ok(tree) => {
-                                    let root = &tree.nodes[0];
-                                    let size = (
-                                        root.allocated_size,
-                                        root.logical_size,
-                                        tree.issues.is_empty()
-                                            && tree.stats.skipped_mounts == 0
-                                            && tree.stats.symlinks == 0
-                                            && options.max_depth.is_none()
-                                            && options.exclude.is_empty()
-                                            && !options.skip_hidden,
-                                    );
-                                    report.issues.extend(tree.issues);
-                                    sizes.insert(key, size);
-                                    Some(size)
-                                }
-                                Err(ScanError::Cancelled) => return Err(ScanError::Cancelled),
-                                Err(error) => {
-                                    report.issues.push(ScanIssue::new(
-                                        install_path.clone(),
-                                        crate::IssueKind::Other,
-                                        error.to_string(),
-                                    ));
-                                    None
-                                }
-                            }
-                        };
-                        if let Some((allocated, logical, complete)) = size {
-                            application.allocated_bytes = Some(allocated);
-                            application.logical_bytes = Some(logical);
-                            application.size_complete = complete;
-                        }
-                    } else {
-                        report.issues.push(ScanIssue::new(
-                            install_path.clone(),
-                            crate::IssueKind::Other,
-                            "installation path is not a directory",
-                        ));
-                    }
-                }
-                Err(error) => {
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        application.status = InstallationStatus::Missing;
-                    }
-                    report
-                        .issues
-                        .push(ScanIssue::from_io(install_path, "read metadata", &error));
-                }
-            }
+            measure_installation(
+                &mut application,
+                manifest.state_flags.is_some_and(|flags| flags & 4 != 0),
+                &library,
+                options,
+                control,
+                &mounts,
+                &mut sizes,
+                &mut report.issues,
+            )?;
             report.applications.push(application);
         }
     }
@@ -274,6 +204,244 @@ pub fn discover_steam(
             .then(a.id.cmp(&b.id))
     });
     Ok(report)
+}
+
+/// Read Epic's manifest directory, including explicit directories on Linux.
+/// Foreign Windows paths in Wine metadata are reported, never translated.
+pub fn discover_epic(
+    roots: &[PathBuf],
+    options: &ScanOptions,
+    control: &ScanControl,
+) -> Result<ApplicationsReport, ScanError> {
+    if control.is_cancelled() {
+        return Err(ScanError::Cancelled);
+    }
+    if options.follow_symlinks {
+        return Err(ScanError::FollowSymlinksUnsupported);
+    }
+    let mounts = MountPoints::read().map_err(|source| ScanError::Root {
+        path: PathBuf::from("/"),
+        source,
+    })?;
+    let mut report = ApplicationsReport::default();
+    let mut sizes = HashMap::new();
+    let mut visited = HashSet::new();
+    for root in roots {
+        if control.is_cancelled() {
+            return Err(ScanError::Cancelled);
+        }
+        let root = std::path::absolute(root).map_err(|source| ScanError::Root {
+            path: root.clone(),
+            source,
+        })?;
+        let entries = match permitted(&root, &root, options, &mounts).and_then(|()| {
+            let meta = metadata(&root)?;
+            if meta.ino != 0 && !visited.insert((meta.dev, meta.ino)) {
+                return Ok(None);
+            }
+            fs::read_dir(&root).map(Some)
+        }) {
+            Ok(Some(entries)) => entries,
+            Ok(None) => continue,
+            Err(error) => {
+                report
+                    .issues
+                    .push(ScanIssue::from_io(root, "read directory", &error));
+                continue;
+            }
+        };
+        for entry in entries {
+            if control.is_cancelled() {
+                return Err(ScanError::Cancelled);
+            }
+            let path = match entry {
+                Ok(entry) => entry.path(),
+                Err(error) => {
+                    report.issues.push(ScanIssue::from_io(
+                        root.clone(),
+                        "read directory entry",
+                        &error,
+                    ));
+                    continue;
+                }
+            };
+            if !path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("item"))
+            {
+                continue;
+            }
+            let manifest = match permitted(&root, &path, options, &mounts)
+                .and_then(|()| diskclean_platform::epic::read_manifest(&path))
+            {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    report
+                        .issues
+                        .push(ScanIssue::from_io(path, "read Epic manifest", &error));
+                    continue;
+                }
+            };
+            let installed =
+                manifest.incomplete == Some(false) && manifest.needs_validation == Some(false);
+            let mut application = Application {
+                id: manifest.app_name,
+                name: manifest.display_name,
+                launcher: "Epic Games".into(),
+                status: InstallationStatus::Unknown,
+                install_path: manifest.install_location,
+                manifest_path: path,
+                allocated_bytes: None,
+                logical_bytes: None,
+                size_complete: false,
+                build_id: manifest.app_version_string,
+                last_played_unix: None,
+            };
+            measure_installation(
+                &mut application,
+                installed,
+                &root,
+                options,
+                control,
+                &mounts,
+                &mut sizes,
+                &mut report.issues,
+            )?;
+            report.applications.push(application);
+        }
+    }
+    if control.is_cancelled() {
+        return Err(ScanError::Cancelled);
+    }
+    report.applications.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then(a.install_path.cmp(&b.install_path))
+            .then(a.id.cmp(&b.id))
+    });
+    Ok(report)
+}
+
+/// Inventory the selected provider, or all native providers for automatic search.
+/// Explicit roots are scoped to one provider and never mixed with profile probes.
+pub fn discover_applications(
+    roots: Option<&[PathBuf]>,
+    epic: bool,
+    options: &ScanOptions,
+    control: &ScanControl,
+) -> Result<ApplicationsReport, ScanError> {
+    if let Some(roots) = roots {
+        return if epic {
+            discover_epic(roots, options, control)
+        } else {
+            discover_steam(roots, options, control)
+        };
+    }
+    let existing = |roots: Vec<PathBuf>| {
+        roots
+            .into_iter()
+            .filter(|path| path.symlink_metadata().is_ok())
+            .collect::<Vec<_>>()
+    };
+    let mut report = discover_steam(&existing(steam::default_roots()), options, control)?;
+    let other = discover_epic(
+        &existing(diskclean_platform::epic::default_roots()),
+        options,
+        control,
+    )?;
+    report.applications.extend(other.applications);
+    report.issues.extend(other.issues);
+    Ok(report)
+}
+
+type SizeCache = HashMap<(u64, u64, PathBuf), (u64, u64, bool)>;
+
+#[allow(clippy::too_many_arguments)]
+fn measure_installation(
+    application: &mut Application,
+    installed: bool,
+    library: &Path,
+    options: &ScanOptions,
+    control: &ScanControl,
+    mounts: &MountPoints,
+    sizes: &mut SizeCache,
+    issues: &mut Vec<ScanIssue>,
+) -> Result<(), ScanError> {
+    let install_path = application.install_path.clone();
+    match permitted(library, &install_path, options, mounts) {
+        Ok(()) => {
+            let meta = match metadata(&install_path) {
+                Ok(meta) => meta,
+                Err(error) => {
+                    issues.push(ScanIssue::from_io(install_path, "read metadata", &error));
+                    return Ok(());
+                }
+            };
+            if meta.kind == FileKind::Directory {
+                if installed {
+                    application.status = InstallationStatus::Installed;
+                }
+                let key = (
+                    meta.dev,
+                    meta.ino,
+                    if meta.ino == 0 {
+                        install_path.clone()
+                    } else {
+                        PathBuf::new()
+                    },
+                );
+                let size = if let Some(size) = sizes.get(&key) {
+                    Some(*size)
+                } else {
+                    match scan(&install_path, options, control) {
+                        Ok(tree) => {
+                            let root = &tree.nodes[0];
+                            let size = (
+                                root.allocated_size,
+                                root.logical_size,
+                                tree.issues.is_empty()
+                                    && tree.stats.skipped_mounts == 0
+                                    && tree.stats.symlinks == 0
+                                    && options.max_depth.is_none()
+                                    && options.exclude.is_empty()
+                                    && !options.skip_hidden,
+                            );
+                            issues.extend(tree.issues);
+                            sizes.insert(key, size);
+                            Some(size)
+                        }
+                        Err(ScanError::Cancelled) => return Err(ScanError::Cancelled),
+                        Err(error) => {
+                            issues.push(ScanIssue::new(
+                                install_path.clone(),
+                                crate::IssueKind::Other,
+                                error.to_string(),
+                            ));
+                            None
+                        }
+                    }
+                };
+                if let Some((allocated, logical, complete)) = size {
+                    application.allocated_bytes = Some(allocated);
+                    application.logical_bytes = Some(logical);
+                    application.size_complete = complete;
+                }
+            } else {
+                issues.push(ScanIssue::new(
+                    install_path.clone(),
+                    crate::IssueKind::Other,
+                    "installation path is not a directory",
+                ));
+            }
+        }
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                application.status = InstallationStatus::Missing;
+            }
+            issues.push(ScanIssue::from_io(install_path, "read metadata", &error));
+        }
+    }
+    Ok(())
 }
 
 fn permitted(
@@ -405,6 +573,97 @@ mod tests {
         assert_eq!(
             report.applications[0].install_path,
             report.applications[1].install_path
+        );
+    }
+
+    fn epic_fixture(root: &Path, file: &str, install: &Path, incomplete: bool) {
+        fs::create_dir_all(root).expect("manifests");
+        fs::write(
+            root.join(file),
+            serde_json::json!({
+                "AppName": file, "DisplayName": file, "InstallLocation": install,
+                "AppVersionString": "1.2", "bIsIncompleteInstall": incomplete,
+                "bNeedsValidation": false, "InstallSize": 9999999
+            })
+            .to_string(),
+        )
+        .expect("manifest");
+    }
+
+    #[test]
+    fn epic_measures_shared_installs_and_preserves_uncertain_and_missing_records() {
+        let temp = tempfile::tempdir().expect("temp");
+        let root = temp.path().join("Manifests");
+        let install = temp.path().join("Game");
+        fs::create_dir_all(&install).expect("install");
+        fs::write(install.join("data"), [0; 321]).expect("data");
+        epic_fixture(&root, "a.item", &install, false);
+        epic_fixture(&root, "b.item", &install, true);
+        epic_fixture(&root, "c.item", &temp.path().join("Missing"), false);
+        fs::write(root.join("bad.item"), "broken").expect("bad");
+        let report = discover_applications(
+            Some(&[root.clone(), root]),
+            true,
+            &ScanOptions::default(),
+            &ScanControl::new(),
+        )
+        .expect("report");
+        assert_eq!(report.applications.len(), 3);
+        let a = &report.applications[0];
+        assert_eq!(a.launcher, "Epic Games");
+        assert_eq!(a.status, InstallationStatus::Installed);
+        assert_eq!(a.logical_bytes, Some(321));
+        assert_eq!(a.build_id.as_deref(), Some("1.2"));
+        assert!(a.size_complete);
+        assert_eq!(report.applications[1].status, InstallationStatus::Unknown);
+        assert_eq!(a.allocated_bytes, report.applications[1].allocated_bytes);
+        assert_eq!(report.applications[2].status, InstallationStatus::Missing);
+        assert_eq!(report.issues.len(), 2);
+        let control = ScanControl::new();
+        control.cancel();
+        assert!(matches!(
+            discover_epic(&[], &ScanOptions::default(), &control),
+            Err(ScanError::Cancelled)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn epic_rejects_links_in_metadata_and_install_paths() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().expect("temp");
+        let root = temp.path().join("Manifests");
+        let real = temp.path().join("Real");
+        fs::create_dir_all(&real).expect("real");
+        let linked = temp.path().join("Linked");
+        symlink(&real, &linked).expect("link");
+        epic_fixture(&root, "game.item", &linked, false);
+        symlink(root.join("game.item"), root.join("alias.item")).expect("manifest link");
+        let report =
+            discover_epic(&[root], &ScanOptions::default(), &ScanControl::new()).expect("report");
+        assert_eq!(report.applications.len(), 1);
+        assert_eq!(report.applications[0].status, InstallationStatus::Unknown);
+        assert_eq!(report.applications[0].allocated_bytes, None);
+        assert_eq!(report.issues.len(), 2);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn epic_install_mounts_require_explicit_crossing() {
+        let temp = tempfile::tempdir().expect("temp");
+        epic_fixture(temp.path(), "game.item", Path::new("/proc"), false);
+        let report = discover_epic(
+            &[temp.path().into()],
+            &ScanOptions::default(),
+            &ScanControl::new(),
+        )
+        .expect("report");
+        assert_eq!(report.applications[0].allocated_bytes, None);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.message.contains("filesystem boundary"))
         );
     }
 

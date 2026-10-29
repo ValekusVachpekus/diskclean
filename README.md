@@ -18,25 +18,30 @@ explanation and a risk level.
 - [x] Linux release build verified
 - [ ] Interactive Windows runtime test (the Windows target compiles and passes
       clippy)
-- [x] Steam games/applications inventory with measured sizes (GUI + CLI)
+- [x] Steam/Epic games inventory with measured sizes (GUI + CLI)
 - [ ] Other launchers, packages and explained application leftovers
 - [ ] Similar photos/videos
 - [ ] Packaging
 
 ## Features
 
-### Applications and games (Steam)
+### Applications and games (Steam + Epic)
 
-Open **Applications** (`Ctrl+4`) to find Steam libraries in common locations,
-or enter a Steam/SteamLibrary folder. Search measures installation sizes in the
+Open **Applications** (`Ctrl+4`) to find native Steam/Epic locations,
+or choose Steam/Epic and enter its source folder in the collapsed settings.
+Steam accepts a Steam/SteamLibrary folder; Epic accepts its `Manifests` folder
+with `.item` files (automatic detection on Windows). Search measures installation sizes in the
 background, supports cancellation and opens individual games in Analyze.
-Installation status and metadata ownership are explained in English/Russian.
+Results appear as responsive cards, with games first and Steam components
+collapsed. Search covers names and paths; a card opens details without moving
+the grid. Installation status and metadata evidence are explained in English/Russian.
 Separate saves, Proton data and shader caches are outside these sizes; shared
 files mean per-app sizes must not be added together. Other launchers and
 leftover cleanup are planned. [Scope and safety](docs/applications.md).
 
 ```bash
 cargo run -p diskclean-cli -- applications /path/to/Steam --json
+cargo run -p diskclean-cli -- applications /path/to/Manifests --provider epic --json
 ```
 
 

@@ -45,13 +45,16 @@ enum Command {
     Clean(CleanArgs),
     /// Find exact duplicate files. Read-only.
     Duplicates(DuplicatesArgs),
-    /// Inventory Steam games/applications and measure installation folders. Read-only.
+    /// Inventory Steam/Epic games/applications and measure installation folders. Read-only.
     Applications(ApplicationsArgs),
 }
 
 #[derive(Debug, Args)]
 struct ApplicationsArgs {
-    /// Steam installation or library root; omit to search common locations.
+    /// Provider for an explicit path (Steam by default).
+    #[arg(long, value_parser = ["steam", "epic"], requires = "path")]
+    provider: Option<String>,
+    /// Steam library or Epic Manifests folder; omit to search both native providers.
     path: Option<PathBuf>,
     #[arg(long)]
     json: bool,
@@ -251,19 +254,12 @@ fn run() -> Result<()> {
 }
 
 fn run_applications(args: ApplicationsArgs) -> Result<()> {
-    let roots = args.path.map_or_else(
-        || {
-            diskclean_platform::steam::default_roots()
-                .into_iter()
-                .filter(|path| path.symlink_metadata().is_ok())
-                .collect()
-        },
-        |path| vec![path],
-    );
+    let roots = args.path.map(|path| vec![path]);
     let control = ScanControl::new();
     install_cancel_handler(control.clone());
-    let report = diskclean_core::applications::discover_steam(
-        &roots,
+    let report = diskclean_core::applications::discover_applications(
+        roots.as_deref(),
+        args.provider.as_deref() == Some("epic"),
         &ScanOptions {
             threads: args.threads.unwrap_or(0),
             cross_filesystems: args.cross_filesystems,
@@ -276,7 +272,8 @@ fn run_applications(args: ApplicationsArgs) -> Result<()> {
     } else {
         for app in &report.applications {
             println!(
-                "Steam · {} · {:?} · {}\n  {}",
+                "{} · {} · {:?} · {}\n  {}",
+                app.launcher,
                 app.name,
                 app.status,
                 app.allocated_bytes
